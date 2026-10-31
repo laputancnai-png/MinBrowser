@@ -1,18 +1,20 @@
-/** IPC channels between the browser UI and the main process. */
+/** IPC between the browser UI and the main process. */
 export const Ipc = {
-  // UI -> main
-  NewTab: 'tab:new',
-  CloseTab: 'tab:close',
-  ActivateTab: 'tab:activate',
-  Navigate: 'tab:navigate',
-  Back: 'tab:back',
-  Forward: 'tab:forward',
-  Reload: 'tab:reload',
-  Stop: 'tab:stop',
-  // main -> UI
-  State: 'tabs:state',
+  /** UI -> main, invoke(command, ...args) */
+  Command: 'ui:command',
+  /** main -> UI */
+  State: 'ui:state',
   FocusAddress: 'ui:focus-address',
+  /** Internal min:// pages -> main, invoke(method, args) */
+  Internal: 'internal',
+  /** Tab password agent <-> main */
+  PwForms: 'pw:forms',
+  PwSubmit: 'pw:submit',
+  PwFill: 'pw:fill',
+  PwFillNew: 'pw:fill-new',
 } as const;
+
+export type Phase = 'setup' | 'locked' | 'unlocked';
 
 export interface TabState {
   id: number;
@@ -22,23 +24,53 @@ export interface TabState {
   loading: boolean;
   canGoBack: boolean;
   canGoForward: boolean;
+  /** Can this page be bookmarked / has a site (http/https)? */
+  isWeb: boolean;
+  bookmarked: boolean;
+  blocked: number;
+  /** 'on' blocking, 'paused' allowed for this site, 'off' disabled globally. */
+  shield: 'on' | 'paused' | 'off';
+  /** Show the key button: a login form is present or logins are saved for this site. */
+  showKey: boolean;
 }
 
-export interface TabsState {
+export interface BarItem {
+  id: number;
+  type: 'folder' | 'link';
+  title: string;
+  url: string | null;
+}
+
+export interface SavePrompt {
+  tabId: number;
+  origin: string;
+  username: string;
+  update: boolean;
+}
+
+export interface UiState {
+  phase: Phase;
+  dataDir: string | null;
   tabs: TabState[];
   activeId: number | null;
+  recordingPaused: boolean;
+  showBookmarksBar: boolean;
+  bookmarksBar: BarItem[];
+  downloadsActive: number;
+  savePrompt: SavePrompt | null;
 }
+
+export interface SetupDirResult {
+  dir: string;
+  /** The folder already holds MinBrowser data. */
+  existing: boolean;
+}
+
+export type CommandResult = { ok: true; value?: unknown } | { ok: false; error: string };
 
 export interface MinBrowserApi {
   platform: string;
-  newTab(): void;
-  closeTab(id: number): void;
-  activateTab(id: number): void;
-  navigate(input: string): void;
-  back(): void;
-  forward(): void;
-  reload(): void;
-  stop(): void;
-  onState(cb: (state: TabsState) => void): void;
+  command(name: string, ...args: unknown[]): Promise<CommandResult>;
+  onState(cb: (state: UiState) => void): void;
   onFocusAddress(cb: () => void): void;
 }

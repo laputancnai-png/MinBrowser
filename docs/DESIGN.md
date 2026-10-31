@@ -55,16 +55,29 @@ tests/        单元测试 + 端到端测试
 数据文件夹内容：
 
 ```
-vault.meta     盐值、Argon2 参数、被 KEK 加密的数据密钥（单独拿到它也无法解密）
-history.db     SQLCipher 加密
-bookmarks.db   SQLCipher 加密
-passwords.db   SQLCipher 加密，每条密码再用 AES-256-GCM 单独加密
-config.json    非敏感设置
-chromium/      Chromium 会话数据（Cookie 等）
+vault.meta            盐值、Argon2 参数、被 KEK 加密的数据密钥（单独拿到它也无法解密）
+history.db.enc        浏览记录（整库加密快照）
+bookmarks.db.enc      收藏夹
+passwords.db.enc      密码；每条密码再用独立密钥单独加密，并绑定网站和用户名
+sites.db.enc          按网站的设置（停用拦截的网站列表）
+<name>.<N>.journal    快照之后的加密写入日志，正常关闭或锁定时合并进快照
+config.json           非敏感设置
+adblock.bin           编译好的公开拦截规则（不含个人数据）
+chromium/             Chromium 会话数据（Cookie、localStorage 等）
 ```
 
-- 主密码 → Argon2id（64MB 内存、3 轮）→ KEK → 解开随机 256 位 DEK
+- 主密码 → Argon2id（64MB 内存、3 轮，用 hash-wasm）→ KEK → 解开随机 256 位 DEK
 - HKDF 从 DEK 派生每个数据库各自的密钥
+
+**存储引擎（与最初方案的差异）**：原计划用 SQLCipher，但它是原生模块，需要针对每个
+Electron 版本和平台单独编译，开发环境里无法构建和测试。改为使用 Electron 自带的 SQLite
+（`node:sqlite`）配合自己的整库加密：
+
+- 解锁后数据库在内存中运行，支持完整 SQL 和 FTS5 全文搜索（trigram，支持中文）
+- 磁盘上只有加密文件：一份 AES-256-GCM 加密的快照，加上一份加密的写入日志
+- 每次写入都立刻追加到日志，崩溃不会丢失已确认的数据；日志过大、锁定或退出时重写快照
+- 快照和每一条日志都用“文件名 + 版本号 + 序号”作为附加认证数据，防止被替换或调换顺序
+- 好处：没有原生模块，升级 Electron 和跨平台打包都更简单；磁盘上的保护强度与 SQLCipher 相同
 - 闲置 15 分钟自动锁定（可调），锁定时清零内存中的密钥
 - 忘记主密码无法恢复；首次设置时要求用户手动输入确认语句
 - Chromium 自身数据（Cookie、缓存、localStorage）无法用 SQLCipher 加密：放入数据文件夹，开启 Electron Cookie 加密（系统钥匙串/密钥环），退出时清空缓存，可选"退出时清除所有 Cookie"
@@ -80,8 +93,14 @@ visits_fts  -- 标题 + 网址全文索引
 bookmarks(id, parent_id, type['folder'|'link'], title, url, position, created_at)
 
 -- passwords.db
-credentials(id, origin, username, password_enc, nonce, created_at, updated_at, last_used_at)
+credentials(id, origin, username, password_enc, created_at, updated_at, last_used_at)
+never_save(origin, created_at)
+
+-- sites.db
+adblock_allow(site, created_at)
 ```
+
+`password_enc` = nonce + 密文 + 认证标签（AES-256-GCM）。
 
 记录规则：
 - 不记录表单数据、页面全文、截图、内部页面
@@ -120,3 +139,11 @@ credentials(id, origin, username, password_enc, nonce, created_at, updated_at, l
 | P5 密码管理 | 表单检测、保存、填充、生成器、管理页面 |
 | P6 拦截和下载 | 广告追踪拦截、下载管理 |
 | P7 打包 | dmg / AppImage，Electron 升级流程 |
+
+## 9. 已知取舍
+
+- 下载列表只保存在内存里，不写入磁盘（下载过什么本身就是隐私）
+- 广告拦截只做网络层拦截，不做隐藏页面元素（cosmetic filtering）
+- 首次下载完整拦截规则之前，使用内置的约 30 条常见追踪域名规则
+- 密码填充需要点击工具栏的钥匙按钮，不会在页面加载时自动填充
+- 打开过的网页内容在锁定期间仍在内存中（页面被隐藏，但标签页没有关闭）

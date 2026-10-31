@@ -10,27 +10,89 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <header id="chrome">
+    <header id="chrome" hidden>
       <div id="tabbar">
         <div id="tabs" role="tablist"></div>
-        <button id="new-tab" class="icon-button" title="新建标签页 (⌘/Ctrl+T)" aria-label="新建标签页"></button>
+        <button id="new-tab" class="icon-button" title="新建标签页" aria-label="新建标签页"></button>
       </div>
       <div id="toolbar">
         <button id="back" class="icon-button" title="后退" aria-label="后退"></button>
         <button id="forward" class="icon-button" title="前进" aria-label="前进"></button>
         <button id="reload" class="icon-button" title="重新加载" aria-label="重新加载"></button>
         <form id="address-form">
-          <input
-            id="address"
-            type="text"
-            spellcheck="false"
-            autocomplete="off"
-            placeholder="搜索 DuckDuckGo 或输入网址"
-            aria-label="地址栏"
-          />
+          <input id="address" type="text" spellcheck="false" autocomplete="off" placeholder="搜索 DuckDuckGo 或输入网址" aria-label="地址栏" />
+          <button id="star" type="button" class="icon-button small" title="收藏此页" aria-label="收藏此页"></button>
         </form>
+        <button id="key" class="icon-button" title="密码" aria-label="密码" hidden></button>
+        <button id="shield" class="icon-button" title="广告和追踪拦截" aria-label="广告和追踪拦截"><span class="badge" hidden></span></button>
+        <button id="record" class="pill-button" title="正在记录浏览历史，点击暂停"></button>
+        <button id="downloads" class="icon-button" title="下载" aria-label="下载"><span class="badge" hidden></span></button>
+        <button id="menu" class="icon-button" title="菜单" aria-label="菜单"></button>
+      </div>
+      <nav id="bookmarks-bar" hidden></nav>
+      <div id="infobar" hidden>
+        <span id="infobar-text"></span>
+        <span class="spacer"></span>
+        <button id="pw-save" class="button primary">保存</button>
+        <button id="pw-dismiss" class="button">暂不</button>
+        <button id="pw-never" class="button quiet">此网站永不保存</button>
       </div>
     </header>
+
+    <div id="overlay">
+      <div class="drag-strip"></div>
+      <section id="setup" class="card" hidden>
+        <h1>欢迎使用 Min<span>Browser</span></h1>
+        <p class="lead">所有浏览记录、收藏夹和密码都会加密保存在你选择的文件夹里。</p>
+
+        <div class="field">
+          <label>数据文件夹</label>
+          <div class="row">
+            <code id="setup-dir" class="path">尚未选择</code>
+            <button id="setup-choose" class="button">选择文件夹…</button>
+          </div>
+        </div>
+
+        <div id="setup-existing" hidden>
+          <p class="note">这个文件夹里已经有 MinBrowser 数据。</p>
+          <button id="setup-use" class="button primary wide">使用这个文件夹</button>
+        </div>
+
+        <form id="setup-form" hidden>
+          <div class="field">
+            <label for="setup-pw">主密码</label>
+            <input id="setup-pw" type="password" autocomplete="new-password" minlength="8" />
+            <div class="meter"><div id="setup-meter"></div></div>
+            <small id="setup-strength" class="hint">至少 8 个字符。建议用一句只有你知道的话。</small>
+          </div>
+          <div class="field">
+            <label for="setup-pw2">再次输入主密码</label>
+            <input id="setup-pw2" type="password" autocomplete="new-password" />
+          </div>
+          <div class="warning">
+            <strong>请务必记住主密码。</strong>
+            MinBrowser 不保存主密码，也没有任何找回方式。忘记主密码，所有浏览记录、收藏夹和密码都将<strong>永久无法打开</strong>。
+          </div>
+          <div class="field">
+            <label for="setup-phrase">请输入“<span id="phrase"></span>”以确认</label>
+            <input id="setup-phrase" type="text" autocomplete="off" />
+          </div>
+          <button id="setup-create" class="button primary wide" type="submit">创建并开始浏览</button>
+        </form>
+        <p id="setup-error" class="error" hidden></p>
+      </section>
+
+      <section id="unlock" class="card narrow" hidden>
+        <h1>Min<span>Browser</span></h1>
+        <p class="lead">输入主密码解锁</p>
+        <form id="unlock-form">
+          <input id="unlock-pw" type="password" autocomplete="current-password" aria-label="主密码" />
+          <button id="unlock-btn" class="button primary wide" type="submit">解锁</button>
+        </form>
+        <p id="unlock-error" class="error" hidden></p>
+        <p class="footnote">数据位置：<code id="unlock-dir"></code><br /><a href="#" id="unlock-switch">使用其他数据文件夹</a></p>
+      </section>
+    </div>
     <script src="app.js"></script>
   </body>
 </html>

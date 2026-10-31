@@ -60,3 +60,50 @@ function toUrl(s: string): string | null {
     return null;
   }
 }
+
+/** Query parameters that only exist to track you across sites. */
+const TRACKING_PARAMS = new Set([
+  'fbclid', 'gclid', 'gclsrc', 'dclid', 'gbraid', 'wbraid', 'msclkid', 'yclid', 'twclid', 'ttclid',
+  'igshid', 'li_fat_id', 'mc_cid', 'mc_eid', '_hsenc', '_hsmi', 'mkt_tok', 'oly_anon_id', 'oly_enc_id',
+  'vero_id', 'wickedid', 'rb_clickid', 's_cid', 'spm',
+]);
+
+/** Parameters that often carry login secrets; never write them to history. */
+const SECRET_PARAMS = new Set([
+  'access_token', 'id_token', 'refresh_token', 'token', 'auth', 'auth_token', 'password', 'passwd', 'pwd',
+  'session', 'sessionid', 'session_id', 'sid', 'api_key', 'apikey', 'secret', 'client_secret', 'code_verifier',
+]);
+
+/**
+ * The URL as it should be stored in history: tracking parameters and secrets
+ * removed. Non-http(s) URLs return null (they are never recorded).
+ */
+export function cleanUrlForHistory(raw: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+  url.username = '';
+  url.password = '';
+  for (const key of [...url.searchParams.keys()]) {
+    const k = key.toLowerCase();
+    if (k.startsWith('utm_') || TRACKING_PARAMS.has(k) || SECRET_PARAMS.has(k)) url.searchParams.delete(key);
+  }
+  // OAuth implicit flows put tokens in the fragment.
+  if (/(^|[#&])(access_token|id_token|token)=/i.test(url.hash)) url.hash = '';
+  return url.href;
+}
+
+/** The "origin" a saved password belongs to: scheme + host + port. */
+export function originOf(raw: string): string | null {
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+    return url.origin;
+  } catch {
+    return null;
+  }
+}

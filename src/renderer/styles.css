@@ -225,3 +225,373 @@ body {
 #address::placeholder {
   color: var(--muted);
 }
+
+[hidden] {
+  display: none !important;
+}
+
+#chrome {
+  height: auto;
+}
+
+/* Address bar with the star inside it */
+#address-form {
+  position: relative;
+}
+
+#address {
+  padding-right: 38px;
+}
+
+#star {
+  position: absolute;
+  right: 4px;
+  top: 3px;
+  width: 26px;
+  height: 26px;
+}
+
+#star.on {
+  color: var(--accent);
+}
+
+#star.on svg {
+  fill: var(--accent);
+}
+
+.icon-button {
+  position: relative;
+}
+
+.badge {
+  position: absolute;
+  right: -2px;
+  top: 0;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 9.5px;
+  font-weight: 600;
+  line-height: 15px;
+  text-align: center;
+}
+
+#shield.paused,
+#shield.off {
+  color: var(--muted);
+}
+
+#shield.paused::after,
+#shield.off::after {
+  content: "";
+  position: absolute;
+  width: 18px;
+  height: 1.6px;
+  background: currentColor;
+  transform: rotate(-45deg);
+}
+
+.pill-button {
+  -webkit-app-region: no-drag;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 14px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.pill-button:hover {
+  background: var(--tab-hover);
+}
+
+.pill-button .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.7;
+}
+
+/* Paused recording must be impossible to miss. */
+.pill-button.paused {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.pill-button.paused svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* Bookmarks bar */
+#bookmarks-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 30px;
+  padding: 0 8px;
+  overflow: hidden;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.bar-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 180px;
+  height: 24px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bar-item:hover {
+  background: var(--tab-hover);
+}
+
+.bar-item svg {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  color: var(--muted);
+}
+
+.bar-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bar-empty {
+  color: var(--muted);
+  font-size: 12px;
+  padding: 0 8px;
+}
+
+/* Save-password bar */
+#infobar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 14px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+
+#infobar .spacer {
+  flex: 1;
+}
+
+.button {
+  -webkit-app-region: no-drag;
+  height: 30px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--field);
+  color: var(--text);
+  font: inherit;
+  cursor: default;
+}
+
+.button:hover:not(:disabled) {
+  border-color: var(--muted);
+}
+
+.button.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+  font-weight: 500;
+}
+
+.button.primary:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
+.button.quiet {
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+}
+
+.button:disabled {
+  opacity: 0.55;
+}
+
+.button.wide {
+  width: 100%;
+  height: 40px;
+  font-size: 14px;
+}
+
+/* Setup and lock screens */
+#overlay {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow: auto;
+  background: var(--bg);
+  user-select: text;
+}
+
+.drag-strip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 36px;
+  -webkit-app-region: drag;
+}
+
+.card {
+  width: min(520px, 90vw);
+  margin: 40px 0;
+  padding: 36px 40px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--tab-active);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.06);
+}
+
+.card.narrow {
+  width: min(380px, 90vw);
+  text-align: center;
+}
+
+.card h1 {
+  margin: 0 0 8px;
+  font: 500 30px/1.15 Georgia, "Times New Roman", serif;
+}
+
+.card h1 span {
+  color: var(--accent);
+}
+
+.lead {
+  margin: 0 0 24px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.field {
+  margin-bottom: 16px;
+}
+
+.field label {
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 500;
+}
+
+.card input {
+  width: 100%;
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--field);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  outline: none;
+}
+
+.card input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+#unlock-form input {
+  margin-bottom: 12px;
+  text-align: center;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.path {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meter {
+  height: 4px;
+  margin-top: 8px;
+  border-radius: 2px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.meter div {
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  transition: width 0.2s;
+}
+
+.hint,
+.footnote {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.footnote {
+  margin: 20px 0 0;
+  line-height: 1.7;
+  word-break: break-all;
+}
+
+.footnote a {
+  color: var(--accent);
+}
+
+.warning {
+  margin: 4px 0 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  background: var(--accent-soft);
+  line-height: 1.6;
+}
+
+.note {
+  color: var(--muted);
+}
+
+.error {
+  margin: 12px 0 0;
+  color: #c4472c;
+}

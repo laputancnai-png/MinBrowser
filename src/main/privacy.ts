@@ -31,7 +31,12 @@ export function hardenApp(): void {
   app.configureHostResolver({ secureDnsMode: 'secure', secureDnsServers: DOH_SERVERS });
 }
 
-export function hardenSession(session: Session, getWindow: () => BrowserWindow | null): void {
+export interface RequestBlocker {
+  /** Return true to cancel a sub-resource request. */
+  shouldBlock(url: string, resourceType: string, pageUrl: string, webContentsId: number | undefined): boolean;
+}
+
+export function hardenSession(session: Session, getWindow: () => BrowserWindow | null, blocker?: RequestBlocker): void {
   session.setUserAgent(cleanUserAgent(session.getUserAgent()));
 
   // Spellcheck dictionaries are downloaded from Google's CDN on Linux; turn it all off.
@@ -39,7 +44,17 @@ export function hardenSession(session: Session, getWindow: () => BrowserWindow |
   session.setSpellCheckerDictionaryDownloadURL('https://localhost.invalid/');
 
   blockThirdPartyCookies(session);
+  if (blocker) blockRequests(session, blocker);
   handlePermissions(session, getWindow);
+}
+
+function blockRequests(session: Session, blocker: RequestBlocker): void {
+  session.webRequest.onBeforeRequest({ urls: ['http://*/*', 'https://*/*', 'ws://*/*', 'wss://*/*'] }, (details, callback) => {
+    if (details.resourceType === 'mainFrame') return callback({});
+    const page = details.webContents?.getURL();
+    if (!page) return callback({});
+    callback({ cancel: blocker.shouldBlock(details.url, details.resourceType, page, details.webContents?.id) });
+  });
 }
 
 function topLevelUrl(details: { resourceType: string; url: string; webContents?: Electron.WebContents }): string | null {
