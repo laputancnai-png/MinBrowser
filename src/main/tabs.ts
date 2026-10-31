@@ -175,6 +175,24 @@ export class TabManager {
     this.layout();
   }
 
+  /** Put a tab at position `index` in the tab strip. */
+  move(id: number, index: number): void {
+    const from = this.order.indexOf(id);
+    if (from === -1) return;
+    const to = Math.max(0, Math.min(Math.round(index), this.order.length - 1));
+    if (to === from) return;
+    this.order.splice(from, 1);
+    this.order.splice(to, 0, id);
+    this.hooks.changed();
+  }
+
+  /** Move the active tab one place left (-1) or right (+1). */
+  moveActive(delta: number): void {
+    if (this.activeId === null) return;
+    this.move(this.activeId, this.order.indexOf(this.activeId) + delta);
+  }
+
+  /** Move to the tab `delta` positions away, wrapping around. */
   cycle(delta: number): void {
     if (this.activeId === null || this.order.length < 2) return;
     const i = this.order.indexOf(this.activeId);

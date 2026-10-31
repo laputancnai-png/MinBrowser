@@ -398,6 +398,32 @@ async function crashRecovery() {
   await app.close();
 }
 
+async function tabReorder() {
+  const { app, ui, cmd, go } = await launch();
+  await unlockWith(ui, PW2);
+  await go(`${SITE}/page/1`);
+  for (const n of [2, 3]) {
+    await cmd('newTab');
+    await go(`${SITE}/page/${n}`);
+  }
+  await wait(500);
+  check('three tabs to reorder', (await tabTitles(ui)).join(',') === 'Page 1,Page 2,Page 3', (await tabTitles(ui)).join(','));
+  // Drag "Page 1" past "Page 3" at a human pace.
+  const a = await (await ui.$('.tab:has-text("Page 1")')).boundingBox();
+  const c = await (await ui.$('.tab:has-text("Page 3")')).boundingBox();
+  await ui.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
+  await ui.mouse.down();
+  await ui.mouse.move(c.x + c.width * 0.75, a.y + a.height / 2, { steps: 15 });
+  await wait(200);
+  await ui.mouse.up();
+  await wait(600);
+  check('dragging a tab reorders the tabs', (await tabTitles(ui)).join(',') === 'Page 2,Page 3,Page 1', (await tabTitles(ui)).join(','));
+  await ui.click('.tab:has-text("Page 2")');
+  await wait(300);
+  check('clicking a tab does not move it', (await tabTitles(ui)).join(',') === 'Page 2,Page 3,Page 1');
+  await app.close();
+}
+
 (async () => {
   fs.mkdirSync(DATA, { recursive: true });
   fakeChromeProfile();
@@ -406,6 +432,7 @@ async function crashRecovery() {
     await firstRun();
     await restart();
     await crashRecovery();
+    await tabReorder();
   } finally {
     server.close();
     fs.rmSync(TMP, { recursive: true, force: true });

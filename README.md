@@ -72,6 +72,7 @@ sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
 | 重新加载 | ⌘R | Ctrl+R |
 | 后退 / 前进 | ⌘[ / ⌘] | Alt+← / Alt+→ |
 | 切换标签页 | Ctrl+Tab、⌘1–9 | Ctrl+Tab、Ctrl+1–9 |
+| 标签页左移 / 右移（也可以直接拖动标签） | Ctrl+Shift+PageUp / PageDown | Ctrl+Shift+PageUp / PageDown |
 | 收藏 / 取消收藏 | ⌘D | Ctrl+D |
 | 历史记录 | ⌘Y | Ctrl+H |
 | 暂停 / 恢复记录 | ⌘⇧P | Ctrl+Shift+P |

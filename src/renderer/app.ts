@@ -130,15 +130,19 @@ function createTabEl(id: number): TabEl {
   close.className = 'icon-button tab-close';
   close.title = '关闭标签页';
   close.innerHTML = svg('close');
-  // Don't let pressing the close button also activate the tab.
+  // Don't let pressing the close button also activate (or start dragging) the tab.
   close.addEventListener('mousedown', (e) => e.stopPropagation());
+  close.addEventListener('pointerdown', (e) => e.stopPropagation());
   close.addEventListener('click', (e) => {
     e.stopPropagation();
     send('closeTab', id);
   });
   root.append(icon, title, close);
-  root.addEventListener('mousedown', (e) => {
-    if (e.button === 0) send('activateTab', id);
+  root.dataset.id = String(id);
+  root.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    send('activateTab', id);
+    pressTab(id, root, e);
   });
   root.addEventListener('auxclick', (e) => {
     if (e.button === 1) send('closeTab', id);
@@ -155,7 +159,8 @@ function renderTabs(): void {
       el = createTabEl(tab.id);
       tabEls.set(tab.id, el);
     }
-    el.root.className = 'tab' + (tab.id === state!.activeId ? ' active' : '');
+    el.root.classList.add('tab');
+    el.root.classList.toggle('active', tab.id === state!.activeId);
     el.root.title = tab.title;
     if (el.title.textContent !== tab.title) el.title.textContent = tab.title;
 
@@ -178,8 +183,9 @@ function renderTabs(): void {
       el.icon = icon;
       el.iconKey = iconKey;
     }
-    // Keep DOM order in step with tab order without re-creating anything.
-    if (tabsEl.children[index] !== el.root) tabsEl.insertBefore(el.root, tabsEl.children[index] ?? null);
+    // Keep DOM order in step with tab order without re-creating anything
+    // (but not mid-drag: the dragged tab and its neighbours are being moved by hand).
+    if (!tabDrag?.active && tabsEl.children[index] !== el.root) tabsEl.insertBefore(el.root, tabsEl.children[index] ?? null);
   });
   for (const [id, el] of tabEls) {
     if (!seen.has(id)) {
@@ -187,6 +193,106 @@ function renderTabs(): void {
       tabEls.delete(id);
     }
   }
+}
+
+// ------------------------------------------------------------------ dragging tabs
+
+/**
+ * Tabs are reordered by dragging: past a small threshold the tab follows the
+ * pointer, the others slide out of its way, and on release it settles into
+ * the gap. A press without movement is just a click.
+ */
+const DRAG_THRESHOLD = 5;
+
+interface TabDrag {
+  id: number;
+  el: HTMLElement;
+  pointerId: number;
+  startX: number;
+  active: boolean;
+  /** Tab elements and their boxes as they were when the drag started. */
+  els: HTMLElement[];
+  rects: DOMRect[];
+  from: number;
+  to: number;
+}
+
+let tabDrag: TabDrag | null = null;
+
+function pressTab(id: number, el: HTMLElement, e: PointerEvent): void {
+  el.setPointerCapture(e.pointerId);
+  tabDrag = { id, el, pointerId: e.pointerId, startX: e.clientX, active: false, els: [], rects: [], from: 0, to: 0 };
+  el.addEventListener('pointermove', onTabDragMove);
+  el.addEventListener('pointerup', onTabDragEnd);
+  el.addEventListener('pointercancel', onTabDragCancel);
+}
+
+function onTabDragMove(e: PointerEvent): void {
+  const d = tabDrag;
+  if (!d || e.pointerId !== d.pointerId) return;
+  let dx = e.clientX - d.startX;
+  if (!d.active) {
+    if (Math.abs(dx) < DRAG_THRESHOLD) return;
+    d.active = true;
+    d.els = Array.from(tabsEl.children) as HTMLElement[];
+    d.rects = d.els.map((t) => t.getBoundingClientRect());
+    d.from = d.to = d.els.indexOf(d.el);
+    d.el.classList.add('dragging');
+    tabsEl.classList.add('reordering');
+  }
+  const { rects, from } = d;
+  const me = rects[from];
+  // Where would it land? Count the other tabs whose middle the pointer has
+  // passed. Use the pointer, not the (clamped) tab, so the ends are reachable.
+  const center = me.left + me.width / 2 + dx;
+  // Keep the tab itself inside the strip.
+  dx = Math.min(Math.max(dx, rects[0].left - me.left), rects[rects.length - 1].right - me.right);
+  d.el.style.transform = `translateX(${dx}px)`;
+
+  let to = 0;
+  rects.forEach((r, i) => {
+    if (i !== from && r.left + r.width / 2 < center) to++;
+  });
+  d.to = to;
+
+  // Slide the tabs between the old and new place over by one tab width.
+  const gap = rects.length > 1 ? Math.max(0, rects[1].left - rects[0].right) : 0;
+  const shift = me.width + gap;
+  d.els.forEach((t, i) => {
+    if (i === from) return;
+    let offset = 0;
+    if (from < to && i > from && i <= to) offset = -shift;
+    if (to < from && i >= to && i < from) offset = shift;
+    t.style.transform = offset ? `translateX(${offset}px)` : '';
+  });
+}
+
+function finishTabDrag(commit: boolean): void {
+  const d = tabDrag;
+  if (!d) return;
+  d.el.removeEventListener('pointermove', onTabDragMove);
+  d.el.removeEventListener('pointerup', onTabDragEnd);
+  d.el.removeEventListener('pointercancel', onTabDragCancel);
+  if (d.el.hasPointerCapture(d.pointerId)) d.el.releasePointerCapture(d.pointerId);
+  tabDrag = null;
+  if (!d.active) return;
+  // Settle without animation: put the element in its new place, then clear the offsets.
+  tabsEl.classList.remove('reordering');
+  d.el.classList.remove('dragging');
+  for (const t of d.els) t.style.transform = '';
+  if (commit && d.to !== d.from) {
+    const others = d.els.filter((t) => t !== d.el);
+    tabsEl.insertBefore(d.el, others[d.to] ?? null);
+    send('moveTab', d.id, d.to);
+  }
+}
+
+function onTabDragEnd(e: PointerEvent): void {
+  if (tabDrag && e.pointerId === tabDrag.pointerId) finishTabDrag(true);
+}
+
+function onTabDragCancel(e: PointerEvent): void {
+  if (tabDrag && e.pointerId === tabDrag.pointerId) finishTabDrag(false);
 }
 
 function placeholderIcon(): HTMLElement {

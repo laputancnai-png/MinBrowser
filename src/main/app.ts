@@ -237,6 +237,8 @@ export class BrowserApp {
         return tabs.close(num(0));
       case 'activateTab':
         return tabs.activate(num(0));
+      case 'moveTab':
+        return tabs.move(num(0), num(1));
       case 'navigate':
         return tabs.navigate(str(0));
       case 'back':
