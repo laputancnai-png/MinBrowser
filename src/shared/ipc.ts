@@ -39,6 +39,7 @@ export interface BarItem {
   type: 'folder' | 'link';
   title: string;
   url: string | null;
+  description: string;
 }
 
 export interface SavePrompt {

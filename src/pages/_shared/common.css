@@ -421,3 +421,23 @@ code {
 .form-grid > * {
   min-width: 0;
 }
+
+/* Row actions that float over the right side on hover instead of taking up space. */
+.row {
+  position: relative;
+}
+
+.row .actions.overlay {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding-left: 16px;
+  background: linear-gradient(to right, transparent, var(--hover) 16px);
+  pointer-events: none;
+}
+
+.row:hover .actions.overlay,
+.row:focus-within .actions.overlay {
+  pointer-events: auto;
+}

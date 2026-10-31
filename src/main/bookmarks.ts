@@ -9,6 +9,7 @@ export interface Bookmark {
   type: 'folder' | 'link';
   title: string;
   url: string | null;
+  description: string;
   position: number;
   created_at: number;
 }
@@ -18,7 +19,9 @@ export interface BookmarkNode extends Bookmark {
 }
 
 /** A tree to import, e.g. parsed from Chrome. */
-export type ImportNode = { type: 'link'; title: string; url: string } | { type: 'folder'; title: string; children: ImportNode[] };
+export type ImportNode =
+  | { type: 'link'; title: string; url: string; description?: string }
+  | { type: 'folder'; title: string; children: ImportNode[] };
 
 export const BOOKMARKS_SCHEMA = `
 CREATE TABLE IF NOT EXISTS bookmarks (
@@ -32,12 +35,19 @@ CREATE TABLE IF NOT EXISTS bookmarks (
 );
 CREATE INDEX IF NOT EXISTS bookmarks_parent ON bookmarks(parent_id, position);
 CREATE INDEX IF NOT EXISTS bookmarks_url ON bookmarks(url);
-INSERT OR IGNORE INTO bookmarks VALUES (${BAR_ID}, NULL, 'folder', '收藏夹栏', NULL, 0, 0);
-INSERT OR IGNORE INTO bookmarks VALUES (${OTHER_ID}, NULL, 'folder', '其他收藏', NULL, 1, 0);
+INSERT OR IGNORE INTO bookmarks (id, parent_id, type, title, url, position, created_at) VALUES (${BAR_ID}, NULL, 'folder', '收藏夹栏', NULL, 0, 0);
+INSERT OR IGNORE INTO bookmarks (id, parent_id, type, title, url, position, created_at) VALUES (${OTHER_ID}, NULL, 'folder', '其他收藏', NULL, 1, 0);
 `;
 
 export class BookmarkService {
-  constructor(private readonly store: EncryptedStore) {}
+  constructor(private readonly store: EncryptedStore) {
+    // Added after the first release. The ALTER goes through the journal, so a
+    // replay against an older snapshot adds the column at the same point.
+    const columns = store.all<{ name: string }>("SELECT name FROM pragma_table_info('bookmarks')").map((c) => c.name);
+    if (!columns.includes('description')) {
+      store.run("ALTER TABLE bookmarks ADD COLUMN description TEXT NOT NULL DEFAULT ''");
+    }
+  }
 
   children(parentId: number): Bookmark[] {
     return this.store.all<Bookmark>('SELECT * FROM bookmarks WHERE parent_id = ? ORDER BY position, id', parentId);
@@ -64,14 +74,15 @@ export class BookmarkService {
     return this.store.get('SELECT 1 FROM bookmarks WHERE url = ? LIMIT 1', url) !== undefined;
   }
 
-  addLink(parentId: number, title: string, url: string, at = Date.now()): number {
+  addLink(parentId: number, title: string, url: string, at = Date.now(), description = ''): number {
     this.assertFolder(parentId);
     return this.store.run(
-      'INSERT INTO bookmarks (parent_id, type, title, url, position, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+      'INSERT INTO bookmarks (parent_id, type, title, url, description, position, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
       parentId,
       'link',
       title || url,
       url,
+      description.trim(),
       this.nextPosition(parentId),
       at,
     ).lastInsertRowid;
@@ -89,12 +100,13 @@ export class BookmarkService {
     ).lastInsertRowid;
   }
 
-  update(id: number, patch: { title?: string; url?: string }): void {
+  update(id: number, patch: { title?: string; url?: string; description?: string }): void {
     const b = this.get(id);
     if (!b || b.parent_id === null) return;
     const title = patch.title?.trim() || b.title;
     const url = b.type === 'link' ? patch.url?.trim() || b.url : null;
-    this.store.run('UPDATE bookmarks SET title = ?, url = ? WHERE id = ?', title, url, id);
+    const description = patch.description === undefined ? b.description : patch.description.trim();
+    this.store.run('UPDATE bookmarks SET title = ?, url = ?, description = ? WHERE id = ?', title, url, description, id);
   }
 
   /** Move `id` into `parentId` at `index` (clamped), renumbering siblings. */
@@ -128,7 +140,8 @@ export class BookmarkService {
   search(query: string, limit = 200): Bookmark[] {
     const like = `%${query.trim().replace(/[\\%_]/g, (c) => '\\' + c)}%`;
     return this.store.all<Bookmark>(
-      "SELECT * FROM bookmarks WHERE type = 'link' AND (title LIKE ? ESCAPE '\\' OR url LIKE ? ESCAPE '\\') ORDER BY created_at DESC LIMIT ?",
+      "SELECT * FROM bookmarks WHERE type = 'link' AND (title LIKE ? ESCAPE '\\' OR url LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\') ORDER BY created_at DESC LIMIT ?",
+      like,
       like,
       like,
       limit,
@@ -148,15 +161,24 @@ export class BookmarkService {
 
     const walk = (parent: number, list: ImportNode[], existing: Bookmark[]) => {
       let pos = existing.length ? Math.max(...existing.map((e) => e.position)) + 1 : 0;
-      const seenUrls = new Set(existing.filter((e) => e.type === 'link').map((e) => e.url));
+      const seenUrls = new Map(existing.filter((e) => e.type === 'link').map((e) => [e.url, e]));
       const folders = new Map(existing.filter((e) => e.type === 'folder').map((e) => [e.title, e.id]));
       for (const n of list) {
         if (n.type === 'link') {
-          if (seenUrls.has(n.url)) continue;
-          seenUrls.add(n.url);
+          const description = n.description?.trim() ?? '';
+          const known = seenUrls.get(n.url);
+          if (known) {
+            // Already there: only fill in a description it didn't have yet.
+            if (description && !known.description && known.id > 0) {
+              ops.push({ sql: 'UPDATE bookmarks SET description = ? WHERE id = ?', params: [description, known.id] });
+              known.description = description;
+            }
+            continue;
+          }
+          seenUrls.set(n.url, { id: -1, description } as Bookmark);
           ops.push({
-            sql: 'INSERT INTO bookmarks (id, parent_id, type, title, url, position, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-            params: [nextId++, parent, 'link', n.title || n.url, n.url, pos++, at],
+            sql: 'INSERT INTO bookmarks (id, parent_id, type, title, url, description, position, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            params: [nextId++, parent, 'link', n.title || n.url, n.url, description, pos++, at],
           });
           counts.links++;
         } else {

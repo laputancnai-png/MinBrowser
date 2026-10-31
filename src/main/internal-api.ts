@@ -79,10 +79,10 @@ export function registerInternalApi(app: BrowserApp): void {
     // ------------------------------------------------ bookmarks
     'bookmarks.tree': () => svc().bookmarks.tree(),
     'bookmarks.search': (q) => svc().bookmarks.search(str(q, 500)),
-    'bookmarks.addLink': (parent, title, url) => {
+    'bookmarks.addLink': (parent, title, url, description) => {
       const u = str(url);
       if (!/^https?:\/\//i.test(u)) throw new Error('网址必须以 http:// 或 https:// 开头');
-      const id = svc().bookmarks.addLink(int(parent), str(title, 500), u);
+      const id = svc().bookmarks.addLink(int(parent), str(title, 500), u, Date.now(), description === undefined ? '' : str(description, 1000));
       app.emit();
       return id;
     },
@@ -92,10 +92,14 @@ export function registerInternalApi(app: BrowserApp): void {
       return id;
     },
     'bookmarks.update': (id, patch) => {
-      const p = (patch ?? {}) as { title?: unknown; url?: unknown };
+      const p = (patch ?? {}) as { title?: unknown; url?: unknown; description?: unknown };
       const url = p.url === undefined ? undefined : str(p.url);
       if (url !== undefined && !/^https?:\/\//i.test(url)) throw new Error('网址必须以 http:// 或 https:// 开头');
-      svc().bookmarks.update(int(id), { title: p.title === undefined ? undefined : str(p.title, 500), url });
+      svc().bookmarks.update(int(id), {
+        title: p.title === undefined ? undefined : str(p.title, 500),
+        url,
+        description: p.description === undefined ? undefined : str(p.description, 1000),
+      });
       app.emit();
     },
     'bookmarks.move': (id, parent, index) => {

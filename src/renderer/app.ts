@@ -254,7 +254,7 @@ function renderBookmarksBar(): void {
     ...state!.bookmarksBar.map((item) => {
       const b = document.createElement('button');
       b.className = 'bar-item';
-      b.title = item.url ? `${item.title}\n${item.url}` : item.title;
+      b.title = [item.title, item.description, item.url].filter(Boolean).join('\n');
       b.innerHTML = svg(item.type === 'folder' ? 'folder' : 'link');
       const label = document.createElement('span');
       label.textContent = item.title;

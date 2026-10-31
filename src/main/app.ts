@@ -173,7 +173,7 @@ export class BrowserApp {
           showKey: isWeb && (t.hasLoginForm || (origin !== null && passwords.forOrigin(origin).length > 0)),
         };
       });
-      bar = bookmarks.children(BAR_ID).map((b) => ({ id: b.id, type: b.type, title: b.title, url: b.url }));
+      bar = bookmarks.children(BAR_ID).map((b) => ({ id: b.id, type: b.type, title: b.title, url: b.url, description: b.description }));
     }
     const p = this.pendingSave;
     return {
@@ -517,7 +517,7 @@ export class BrowserApp {
         : nodes.slice(0, 200).map((n) =>
             n.type === 'folder'
               ? { label: n.title, submenu: build(n.children ?? []) }
-              : { label: n.title.slice(0, 80), click: () => this.openUrl(n.url!, false, 'bookmark') },
+              : { ...menuLabel(n.title, n.description), click: () => this.openUrl(n.url!, false, 'bookmark') },
           );
     Menu.buildFromTemplate(build(folder.children)).popup({ window: this.win!, x, y });
   }
@@ -701,4 +701,15 @@ export class BrowserApp {
   vaultUnlocked(): boolean {
     return this.phase === 'unlocked' && !!this.vault?.unlocked;
   }
+}
+
+/**
+ * A bookmark in a native menu. macOS can show the description as a second
+ * line; elsewhere it follows the title.
+ */
+function menuLabel(title: string, description: string): { label: string; sublabel?: string } {
+  const t = title.length > 60 ? `${title.slice(0, 59)}…` : title;
+  if (!description) return { label: t };
+  if (process.platform === 'darwin') return { label: t, sublabel: description };
+  return { label: `${t}  —  ${description.length > 40 ? `${description.slice(0, 39)}…` : description}` };
 }

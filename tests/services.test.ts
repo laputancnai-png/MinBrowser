@@ -101,3 +101,47 @@ describe('PasswordService', () => {
     expect(p.get(id)).toBeUndefined();
   });
 });
+
+describe('bookmark descriptions', () => {
+  const OLD_SCHEMA = `CREATE TABLE IF NOT EXISTS bookmarks (
+    id INTEGER PRIMARY KEY, parent_id INTEGER, type TEXT NOT NULL, title TEXT NOT NULL, url TEXT,
+    position INTEGER NOT NULL, created_at INTEGER NOT NULL);
+    INSERT OR IGNORE INTO bookmarks VALUES (1, NULL, 'folder', '收藏夹栏', NULL, 0, 0);
+    INSERT OR IGNORE INTO bookmarks VALUES (2, NULL, 'folder', '其他收藏', NULL, 1, 0);
+    INSERT OR IGNORE INTO bookmarks VALUES (3, 1, 'link', 'Old', 'https://old.example/', 0, 0);`;
+
+  it('adds the column to an existing database, also when recovering from the journal', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'minb-mig-'));
+    const key = randomKey();
+    const open = (schema: string) => EncryptedStore.open(dir, 'b', Buffer.from(key), schema);
+    open(OLD_SCHEMA).close(); // a database from the previous version
+
+    const s = open(BOOKMARKS_SCHEMA);
+    const b = new BookmarkService(s);
+    expect(b.get(3)!.description).toBe('');
+    b.addLink(BAR_ID, 'New', 'https://new.example/', 1, '新的描述');
+    // no close(): the ALTER and the insert only exist in the journal
+    const b2 = new BookmarkService(open(BOOKMARKS_SCHEMA));
+    expect(b2.children(BAR_ID).map((x) => [x.title, x.description])).toEqual([['Old', ''], ['New', '新的描述']]);
+  });
+
+  it('stores, edits, and searches descriptions', () => {
+    const b = new BookmarkService(store(BOOKMARKS_SCHEMA));
+    const id = b.addLink(BAR_ID, 'Khan', 'https://khanacademy.org/', 1, '免费数学课程');
+    expect(b.search('数学').map((x) => x.id)).toEqual([id]);
+    b.update(id, { description: '免费课程' });
+    expect(b.get(id)!.description).toBe('免费课程');
+    b.update(id, { title: 'Khan Academy' });
+    expect(b.get(id)!.description).toBe('免费课程');
+  });
+
+  it('imports descriptions and fills them in on re-import', () => {
+    const b = new BookmarkService(store(BOOKMARKS_SCHEMA));
+    b.importTree(OTHER_ID, [{ type: 'link', title: 'A', url: 'https://a.com/' }]);
+    b.importTree(OTHER_ID, [
+      { type: 'link', title: 'A', url: 'https://a.com/', description: '描述 A' },
+      { type: 'link', title: 'B', url: 'https://b.com/', description: '描述 B' },
+    ]);
+    expect(b.children(OTHER_ID).map((x) => [x.title, x.description])).toEqual([['A', '描述 A'], ['B', '描述 B']]);
+  });
+});

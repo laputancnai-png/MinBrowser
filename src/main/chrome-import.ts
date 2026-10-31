@@ -94,10 +94,19 @@ export function parseBookmarksHtml(html: string): ParsedBookmarks {
   const stack: (ImportNode & { type: 'folder' })[] = [root];
   let pendingFolder: (ImportNode & { type: 'folder' }) | null = null;
   let toolbar: (ImportNode & { type: 'folder' }) | null = null;
-  const re = /<DT>\s*<H3([^>]*)>([\s\S]*?)<\/H3>|<DT>\s*<A\s([^>]*)>([\s\S]*?)<\/A>|<DL[^>]*>|<\/DL>/gi;
+  const re = /<DT>\s*<H3([^>]*)>([\s\S]*?)<\/H3>|<DT>\s*<A\s([^>]*)>([\s\S]*?)<\/A>|<DD>([^<]*)|<DL[^>]*>|<\/DL>/gi;
   let m: RegExpExecArray | null;
+  // A <DD> right after a link is that link's description.
+  let lastLink: (ImportNode & { type: 'link' }) | null = null;
   while ((m = re.exec(html))) {
     const top = stack[stack.length - 1];
+    if (m[5] !== undefined) {
+      const text = decodeEntities(m[5].trim());
+      if (lastLink && text) lastLink.description = text;
+      lastLink = null;
+      continue;
+    }
+    lastLink = null;
     if (m[2] !== undefined) {
       const folder: ImportNode & { type: 'folder' } = { type: 'folder', title: decodeEntities(m[2].trim()), children: [] };
       top.children.push(folder);
@@ -106,7 +115,10 @@ export function parseBookmarksHtml(html: string): ParsedBookmarks {
     } else if (m[3] !== undefined) {
       const href = /HREF\s*=\s*"([^"]*)"/i.exec(m[3])?.[1];
       const url = href ? decodeEntities(href) : undefined;
-      if (importable(url)) top.children.push({ type: 'link', title: decodeEntities(m[4].trim()) || url, url });
+      if (importable(url)) {
+        lastLink = { type: 'link', title: decodeEntities(m[4].trim()) || url, url };
+        top.children.push(lastLink);
+      }
     } else if (m[0].toUpperCase().startsWith('<DL')) {
       if (pendingFolder) stack.push(pendingFolder);
       pendingFolder = null;

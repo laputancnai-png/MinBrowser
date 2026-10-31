@@ -6,6 +6,7 @@ interface Node {
   type: 'folder' | 'link';
   title: string;
   url: string | null;
+  description: string;
   children?: Node[];
 }
 
@@ -99,10 +100,10 @@ function row(n: Node, index: number, count: number): HTMLElement {
       'div',
       { class: 'main' },
       h('a', { class: 'title', href: n.url ?? '#', text: n.title, title: n.url ?? '', on: { click: open, auxclick: open } }),
-      n.url ? h('span', { class: 'sub', text: hostOf(n.url) }) : null,
+      n.url ? h('span', { class: 'sub', text: [n.description, hostOf(n.url)].filter(Boolean).join(' · ') }) : null,
     ),
   );
-  const actions = h('div', { class: 'actions' });
+  const actions = h('div', { class: 'actions overlay' });
   if (index >= 0) {
     actions.append(
       h('button', { class: 'small', text: '↑', title: '上移', disabled: index === 0, on: { click: () => move(n, n.parent_id!, index - 1) } }),
@@ -137,11 +138,12 @@ function row(n: Node, index: number, count: number): HTMLElement {
 function edit(el: HTMLElement, n: Node): void {
   const title = h('input', { type: 'text', value: n.title, style: 'flex:1' });
   const url = n.type === 'link' ? h('input', { type: 'url', value: n.url ?? '', style: 'flex:2' }) : null;
+  const desc = n.type === 'link' ? h('input', { type: 'text', value: n.description ?? '', placeholder: '描述', style: 'flex:2' }) : null;
   const save = async () => {
-    await attempt(() => call('bookmarks.update', n.id, { title: title.value, url: url?.value }));
+    await attempt(() => call('bookmarks.update', n.id, { title: title.value, url: url?.value, description: desc?.value }));
     load();
   };
-  el.replaceChildren(title, ...(url ? [url] : []), h('button', { class: 'small primary', text: '保存', on: { click: save } }), h('button', { class: 'small', text: '取消', on: { click: render } }));
+  el.replaceChildren(title, ...(url ? [url] : []), ...(desc ? [desc] : []), h('button', { class: 'small primary', text: '保存', on: { click: save } }), h('button', { class: 'small', text: '取消', on: { click: render } }));
   title.focus();
 }
 
@@ -153,9 +155,10 @@ async function move(n: Node, parent: number, index: number): Promise<void> {
 function addForm(parent: number): HTMLElement {
   const title = h('input', { type: 'text', placeholder: '名称' });
   const url = h('input', { type: 'url', placeholder: 'https://' });
+  const desc = h('input', { type: 'text', placeholder: '描述（可选）' });
   const addLink = async () => {
     if (!url.value) return;
-    const ok = await attempt(() => call('bookmarks.addLink', parent, title.value, url.value));
+    const ok = await attempt(() => call('bookmarks.addLink', parent, title.value, url.value, desc.value));
     if (ok !== undefined) load();
   };
   const addFolder = async () => {
@@ -163,7 +166,7 @@ function addForm(parent: number): HTMLElement {
     if (ok !== undefined) load();
   };
   return h('div', { class: 'card', style: 'margin-top:16px' },
-    h('div', { class: 'form-grid' }, title, url, h('button', { class: 'primary', text: '添加网址', on: { click: addLink } }), h('button', { text: '新建文件夹', on: { click: addFolder } })));
+    h('div', { class: 'form-grid', style: 'grid-template-columns:1fr 1.2fr 1.2fr auto auto' }, title, url, desc, h('button', { class: 'primary', text: '添加网址', on: { click: addLink } }), h('button', { text: '新建文件夹', on: { click: addFolder } })));
 }
 
 async function renderImport(): Promise<void> {

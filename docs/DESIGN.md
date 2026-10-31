@@ -90,7 +90,7 @@ visits(id, url, title, visited_at, duration_ms, transition, referrer_id, tab_id)
 visits_fts  -- 标题 + 网址全文索引
 
 -- bookmarks.db
-bookmarks(id, parent_id, type['folder'|'link'], title, url, position, created_at)
+bookmarks(id, parent_id, type['folder'|'link'], title, url, description, position, created_at)
 
 -- passwords.db
 credentials(id, origin, username, password_enc, created_at, updated_at, last_used_at)

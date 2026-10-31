@@ -58,6 +58,20 @@ describe('Chrome import', () => {
     expect(r.other.map((n) => n.title)).toEqual(['Read', '移动设备书签']);
   });
 
+  it('reads <DD> descriptions', () => {
+    const html = `<DL><p><DT><A HREF="https://a.com/">A</A>
+<DD>第一个 &amp; 描述
+<DT><A HREF="https://b.com/">B</A>
+<DT><H3>F</H3><DD>folder note
+<DL><p><DT><A HREF="https://c.com/">C</A><DD>C 的描述</DL><p></DL>`;
+    const r = parseBookmarksHtml(html);
+    expect(r.other).toEqual([
+      { type: 'link', title: 'A', url: 'https://a.com/', description: '第一个 & 描述' },
+      { type: 'link', title: 'B', url: 'https://b.com/' },
+      { type: 'folder', title: 'F', children: [{ type: 'link', title: 'C', url: 'https://c.com/', description: 'C 的描述' }] },
+    ]);
+  });
+
   it('parses the bookmarks.html export', () => {
     const html = `<!DOCTYPE NETSCAPE-Bookmark-file-1>
 <DL><p>
