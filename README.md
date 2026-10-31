@@ -19,6 +19,19 @@ npm run typecheck  # 类型检查
 打包安装文件（dmg / AppImage / deb）、macOS 未签名应用的打开方法、升级 Electron
 的步骤，见 [docs/RELEASING.md](docs/RELEASING.md)。
 
+## Linux：任务栏和应用菜单里的图标
+
+开发时用 `npm start` 运行，GNOME / KDE 的任务栏可能显示一个通用图标。执行一次：
+
+```bash
+npm run install-desktop
+```
+
+就会把 MinBrowser 加进应用菜单，任务栏也会显示 MinBrowser 的图标（第一次可能需要注销再登录）。
+安装 `.deb` 包时会自动完成这一步。
+
+图标源文件是 `build/icon.svg`，打包用的 `build/icon.png` 和程序里用的 `src/assets/icon.png` 都由它导出。
+
 ## Linux：启动时报 chrome-sandbox 错误
 
 如果 `npm start` 报 `The SUID sandbox helper binary was found, but is not configured correctly`，

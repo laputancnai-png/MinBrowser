@@ -14,7 +14,8 @@
     "dist": "npm run build && electron-builder --publish never",
     "dist:mac": "npm run build && electron-builder --mac --publish never",
     "dist:linux": "npm run build && electron-builder --linux --publish never",
-    "test:e2e": "npm run build && node tests/e2e/run.cjs"
+    "test:e2e": "npm run build && node tests/e2e/run.cjs",
+    "install-desktop": "sh scripts/install-linux-desktop.sh"
   },
   "devDependencies": {
     "@ghostery/adblocker": "^2.20.3",

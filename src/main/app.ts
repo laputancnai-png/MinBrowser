@@ -105,7 +105,11 @@ export class BrowserApp {
 
   private createWindow(): void {
     const isMac = process.platform === 'darwin';
+    const icon = join(__dirname, '..', 'assets', 'icon.png');
+    // Packaged apps get their icon from the bundle; in development set it ourselves.
+    if (isMac && !app.isPackaged) app.dock?.setIcon(icon);
     const win = new BrowserWindow({
+      icon,
       width: 1280,
       height: 820,
       minWidth: 560,

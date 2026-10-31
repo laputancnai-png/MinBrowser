@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src data:"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src data: 'self'"
     />
     <title>MinBrowser</title>
     <link rel="stylesheet" href="styles.css" />
@@ -42,6 +42,7 @@
     <div id="overlay">
       <div class="drag-strip"></div>
       <section id="setup" class="card" hidden>
+        <img class="logo" src="icon.png" alt="" width="64" height="64" />
         <h1>欢迎使用 Min<span>Browser</span></h1>
         <p class="lead">所有浏览记录、收藏夹和密码都会加密保存在你选择的文件夹里。</p>
 
@@ -83,6 +84,7 @@
       </section>
 
       <section id="unlock" class="card narrow" hidden>
+        <img class="logo" src="icon.png" alt="" width="80" height="80" />
         <h1>Min<span>Browser</span></h1>
         <p class="lead">输入主密码解锁</p>
         <form id="unlock-form">

@@ -31,7 +31,7 @@ main {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding-top: 22vh;
+  padding-top: 16vh;
 }
 
 h1 {
@@ -72,4 +72,8 @@ p {
   margin-top: 22px;
   color: var(--muted);
   font-size: 13px;
+}
+
+.logo {
+  margin-bottom: 14px;
 }

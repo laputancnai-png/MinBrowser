@@ -48,6 +48,9 @@ await Promise.all([
 
 cpSync('src/renderer/index.html', 'dist/renderer/index.html');
 cpSync('src/renderer/styles.css', 'dist/renderer/styles.css');
+// The app icon: window/dock icon at runtime, and the logo on the lock, setup and new tab screens.
+cpSync('src/assets', 'dist/assets', { recursive: true });
+cpSync('src/assets/icon.png', 'dist/renderer/icon.png');
 cpSync('src/pages', 'dist/pages', {
   recursive: true,
   filter: (src) => !src.endsWith('.ts') && !src.includes('/_shared'),
@@ -56,3 +59,4 @@ cpSync('src/pages', 'dist/pages', {
 for (const name of readdirSync('src/pages')) {
   if (!name.startsWith('_')) cpSync('src/pages/_shared/common.css', `dist/pages/${name}/common.css`);
 }
+cpSync('src/assets/icon.png', 'dist/pages/newtab/icon.png');

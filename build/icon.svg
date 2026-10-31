@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#E69274"/>
+      <stop offset="1" stop-color="#C45A3A"/>
+    </linearGradient>
+    <linearGradient id="shine" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity="0.18"/>
+      <stop offset="0.5" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+    <!-- Where the front of the orbit crosses the letter, cut a gap in the letter. -->
+    <mask id="gap" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024">
+      <rect width="1024" height="1024" fill="#fff"/>
+      <path transform="rotate(-22 512 512)" d="M 172 512 A 340 118 0 0 0 852 512" fill="none" stroke="#000" stroke-width="52" stroke-linecap="round"/>
+    </mask>
+  </defs>
+
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)"/>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#shine)"/>
+
+  <!-- back half of the orbit, behind the letter -->
+  <path transform="rotate(-22 512 512)" d="M 172 512 A 340 118 0 0 1 852 512" fill="none" stroke="#FAF9F5" stroke-opacity="0.5" stroke-width="20" stroke-linecap="round"/>
+
+  <!-- Serif M, drawn as shapes so it doesn't depend on installed fonts -->
+  <g fill="#FAF9F5" mask="url(#gap)">
+    <rect x="336" y="334" width="40" height="358"/>
+    <polygon points="336,334 418,334 556,704 486,704"/>
+    <polygon points="490,704 530,704 686,334 648,334"/>
+    <rect x="646" y="334" width="84" height="358"/>
+    <rect x="290" y="682" width="132" height="22" rx="4"/>
+    <rect x="598" y="682" width="176" height="22" rx="4"/>
+    <rect x="290" y="320" width="128" height="22" rx="4"/>
+    <rect x="636" y="320" width="138" height="22" rx="4"/>
+  </g>
+
+  <!-- front half of the orbit and its moon -->
+  <g transform="rotate(-22 512 512)" fill="#FAF9F5">
+    <path d="M 172 512 A 340 118 0 0 0 852 512" fill="none" stroke="#FAF9F5" stroke-width="20" stroke-linecap="round"/>
+    <circle cx="790" cy="580" r="30"/>
+  </g>
+</svg>

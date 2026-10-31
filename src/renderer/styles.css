@@ -595,3 +595,12 @@ body {
   margin: 12px 0 0;
   color: #c4472c;
 }
+
+.card .logo {
+  display: block;
+  margin: -6px 0 10px -6px;
+}
+
+.card.narrow .logo {
+  margin: -4px auto 8px;
+}
