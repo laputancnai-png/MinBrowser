@@ -229,6 +229,22 @@ async function firstRun() {
   check('Chinese search', (await inTab('min://history', "window.min.call('history.search', {query: '隐私测试'})")).length === 1);
   check('page cannot use another page\'s API', (await inTab('min://history', "window.min.call('passwords.list').then(() => 'allowed', () => 'denied')")) === 'denied');
 
+  // Click like a person: a pause between press and release must not lose the click.
+  const humanClick = async (sel) => {
+    const box = await (await ui.$(sel)).boundingBox();
+    await ui.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await ui.mouse.down();
+    await wait(300);
+    await ui.mouse.up();
+    await wait(400);
+  };
+  const tabCount = () => ui.$$eval('.tab', (t) => t.length);
+  const before = await tabCount();
+  await humanClick('.tab:not(.active) .tab-close');
+  check('close button closes an inactive tab', (await tabCount()) === before - 1);
+  await humanClick('.tab.active .tab-close');
+  check('close button closes the active tab', (await tabCount()) === before - 2);
+
   await cmd('lock');
   await ui.waitForSelector('#unlock:not([hidden])');
   const leaks = plaintextLeaks(['alice', 's3cret-pass', SITE, 'Tracked Page', 'Chrome Bar Link']);

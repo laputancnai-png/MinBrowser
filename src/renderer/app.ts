@@ -106,14 +106,61 @@ function render(): void {
   renderInfobar();
 }
 
-function renderTabs(): void {
-  tabsEl.replaceChildren(
-    ...state!.tabs.map((tab) => {
-      const el = document.createElement('div');
-      el.className = 'tab' + (tab.id === state!.activeId ? ' active' : '');
-      el.setAttribute('role', 'tab');
-      el.title = tab.title;
+interface TabEl {
+  root: HTMLElement;
+  icon: HTMLElement;
+  iconKey: string;
+  title: HTMLElement;
+}
 
+/**
+ * Tab elements are created once per tab and updated in place. Rebuilding them
+ * on every state update would swap the element under the pointer between
+ * mousedown and mouseup, and the click (e.g. on the close button) would be lost.
+ */
+const tabEls = new Map<number, TabEl>();
+
+function createTabEl(id: number): TabEl {
+  const root = document.createElement('div');
+  root.setAttribute('role', 'tab');
+  const icon = placeholderIcon();
+  const title = document.createElement('span');
+  title.className = 'tab-title';
+  const close = document.createElement('button');
+  close.className = 'icon-button tab-close';
+  close.title = '关闭标签页';
+  close.innerHTML = svg('close');
+  // Don't let pressing the close button also activate the tab.
+  close.addEventListener('mousedown', (e) => e.stopPropagation());
+  close.addEventListener('click', (e) => {
+    e.stopPropagation();
+    send('closeTab', id);
+  });
+  root.append(icon, title, close);
+  root.addEventListener('mousedown', (e) => {
+    if (e.button === 0) send('activateTab', id);
+  });
+  root.addEventListener('auxclick', (e) => {
+    if (e.button === 1) send('closeTab', id);
+  });
+  return { root, icon, iconKey: 'placeholder', title };
+}
+
+function renderTabs(): void {
+  const seen = new Set<number>();
+  state!.tabs.forEach((tab, index) => {
+    seen.add(tab.id);
+    let el = tabEls.get(tab.id);
+    if (!el) {
+      el = createTabEl(tab.id);
+      tabEls.set(tab.id, el);
+    }
+    el.root.className = 'tab' + (tab.id === state!.activeId ? ' active' : '');
+    el.root.title = tab.title;
+    if (el.title.textContent !== tab.title) el.title.textContent = tab.title;
+
+    const iconKey = tab.loading ? 'loading' : (tab.favicon ?? 'placeholder');
+    if (iconKey !== el.iconKey) {
       let icon: HTMLElement;
       if (tab.loading) {
         icon = document.createElement('span');
@@ -127,30 +174,19 @@ function renderTabs(): void {
       } else {
         icon = placeholderIcon();
       }
-
-      const title = document.createElement('span');
-      title.className = 'tab-title';
-      title.textContent = tab.title;
-
-      const close = document.createElement('button');
-      close.className = 'icon-button tab-close';
-      close.title = '关闭标签页';
-      close.innerHTML = svg('close');
-      close.addEventListener('click', (e) => {
-        e.stopPropagation();
-        send('closeTab', tab.id);
-      });
-
-      el.append(icon, title, close);
-      el.addEventListener('mousedown', (e) => {
-        if (e.button === 0) send('activateTab', tab.id);
-      });
-      el.addEventListener('auxclick', (e) => {
-        if (e.button === 1) send('closeTab', tab.id);
-      });
-      return el;
-    }),
-  );
+      el.icon.replaceWith(icon);
+      el.icon = icon;
+      el.iconKey = iconKey;
+    }
+    // Keep DOM order in step with tab order without re-creating anything.
+    if (tabsEl.children[index] !== el.root) tabsEl.insertBefore(el.root, tabsEl.children[index] ?? null);
+  });
+  for (const [id, el] of tabEls) {
+    if (!seen.has(id)) {
+      el.root.remove();
+      tabEls.delete(id);
+    }
+  }
 }
 
 function placeholderIcon(): HTMLElement {
@@ -198,9 +234,15 @@ function renderToolbar(): void {
   setBadge(buttons.downloads, state!.downloadsActive);
 }
 
+let renderedBar = '';
+
 function renderBookmarksBar(): void {
   bar.hidden = !state!.showBookmarksBar;
   if (bar.hidden) return;
+  // Only rebuild when the bookmarks changed, so clicks aren't lost to re-renders.
+  const key = JSON.stringify(state!.bookmarksBar);
+  if (key === renderedBar) return;
+  renderedBar = key;
   if (state!.bookmarksBar.length === 0) {
     const empty = document.createElement('span');
     empty.className = 'bar-empty';
