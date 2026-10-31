@@ -1,0 +1,227 @@
+/* Palette modeled on Claude Code's web UI. Heights must match CHROME_HEIGHT in main/tabs.ts. */
+:root {
+  --bg: #faf9f5;
+  --panel: #f0eee6;
+  --tab-active: #faf9f5;
+  --tab-hover: #e8e6dc;
+  --field: #ffffff;
+  --text: #141413;
+  --muted: #73726c;
+  --border: #e8e6dc;
+  --accent: #d97757;
+  --accent-soft: rgba(217, 119, 87, 0.18);
+  --tabbar-h: 40px;
+  --toolbar-h: 44px;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #262624;
+    --panel: #1f1e1d;
+    --tab-active: #262624;
+    --tab-hover: #30302e;
+    --field: #30302e;
+    --text: #f5f4ee;
+    --muted: #a6a39a;
+    --border: #3a3936;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", Ubuntu, sans-serif;
+  user-select: none;
+}
+
+#chrome {
+  height: calc(var(--tabbar-h) + var(--toolbar-h));
+  display: flex;
+  flex-direction: column;
+}
+
+/* Tab strip */
+#tabbar {
+  height: var(--tabbar-h);
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  padding: 0 8px;
+  background: var(--panel);
+  -webkit-app-region: drag;
+}
+
+.mac #tabbar {
+  padding-left: 80px; /* room for the traffic lights */
+}
+
+#tabs {
+  display: flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  height: 34px;
+  gap: 2px;
+}
+
+.tab {
+  -webkit-app-region: no-drag;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 220px;
+  min-width: 48px;
+  flex: 0 1 220px;
+  padding: 0 6px 0 12px;
+  border-radius: 10px 10px 0 0;
+  color: var(--muted);
+  cursor: default;
+  position: relative;
+}
+
+.tab:hover {
+  background: var(--tab-hover);
+}
+
+.tab.active {
+  background: var(--tab-active);
+  color: var(--text);
+}
+
+.tab.active::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 12px;
+  right: 12px;
+  height: 2px;
+  border-radius: 0 0 2px 2px;
+  background: var(--accent);
+}
+
+.tab-icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  border-radius: 3px;
+}
+
+.tab-icon.placeholder {
+  background: var(--border);
+}
+
+.tab-icon.loading {
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  background: none;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.tab-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.tab-close {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  border-radius: 6px;
+}
+
+.tab:not(.active):not(:hover) .tab-close {
+  visibility: hidden;
+}
+
+/* Toolbar */
+#toolbar {
+  height: var(--toolbar-h);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 10px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.icon-button {
+  -webkit-app-region: no-drag;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+}
+
+.icon-button svg {
+  width: 16px;
+  height: 16px;
+}
+
+.icon-button:hover:not(:disabled) {
+  background: var(--tab-hover);
+}
+
+.icon-button:disabled {
+  color: var(--muted);
+  opacity: 0.45;
+}
+
+#new-tab {
+  margin-bottom: 3px;
+}
+
+.tab-close svg {
+  width: 12px;
+  height: 12px;
+}
+
+#address-form {
+  flex: 1;
+  margin: 0 4px;
+}
+
+#address {
+  width: 100%;
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--field);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  outline: none;
+  user-select: text;
+}
+
+#address:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+#address::placeholder {
+  color: var(--muted);
+}

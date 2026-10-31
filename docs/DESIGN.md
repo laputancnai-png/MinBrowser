@@ -1,0 +1,122 @@
+# MinBrowser 设计方案
+
+一个注重隐私的个人浏览器：不收集任何数据，所有浏览记录、收藏夹、密码都加密保存在用户指定的本地文件夹。
+
+## 1. 需求
+
+| 项目 | 决定 |
+|---|---|
+| 平台 | macOS + Linux |
+| 技术 | Electron + TypeScript |
+| 浏览记录 | 记录基本浏览轨迹，存到用户指定的文件夹；工具栏有"暂停记录"开关 |
+| 收藏夹 | 文件夹分类，可从 Chrome 导入 |
+| 密码管理 | 保存、填充（仅完全相同的网站来源）、生成密码 |
+| 加密 | 浏览记录、收藏夹、密码全部加密；每次启动输入主密码；忘记主密码则数据作废 |
+| 其他 | 多标签页、下载管理、广告和追踪拦截 |
+| 不做 | 扩展插件、同步、DRM 视频 |
+| 界面 | 顶部横排标签；配色参考 Claude Code 网页版；深色模式跟随系统 |
+
+## 2. 架构
+
+```
+┌──────────────────── 主进程（Node，能访问文件和密钥）────────────────────┐
+│  VaultService     主密码、密钥派生、锁定/解锁                            │
+│  HistoryService   记录浏览轨迹、搜索、删除、导出                         │
+│  BookmarkService  收藏夹、Chrome 导入                                    │
+│  PasswordService  保存、查询、生成密码                                   │
+│  TabManager       创建/切换/关闭标签页                                   │
+│  PrivacyGuard     广告拦截、权限控制、DoH、清洗网址追踪参数              │
+│  DownloadManager  下载管理                                               │
+└──────────────┬───────────────────────────────────┬────────────────────┘
+               │ IPC（白名单接口）                    │
+┌──────────────▼──────────────┐     ┌──────────────▼───────────────────┐
+│ 浏览器界面（渲染进程）         │     │ 网页标签页（每个都是独立沙箱）       │
+│ 标签栏、地址栏、各功能面板      │     │ 网页不能调用 Node                  │
+└─────────────────────────────┘     │ 表单检测脚本运行在隔离环境          │
+                                    └──────────────────────────────────┘
+```
+
+安全原则：密钥只存在于主进程，界面和网页都拿不到，只能通过限定的 IPC 接口请求操作。
+
+## 3. 目录结构
+
+```
+src/
+  main/       主进程（各个 Service）
+  preload/    界面与主进程的桥接
+  renderer/   浏览器界面
+  content/    注入网页的表单检测/填充脚本（隔离环境）
+  shared/     类型定义、IPC 约定、纯函数工具
+tests/        单元测试 + 端到端测试
+```
+
+## 4. 加密设计
+
+数据文件夹内容：
+
+```
+vault.meta     盐值、Argon2 参数、被 KEK 加密的数据密钥（单独拿到它也无法解密）
+history.db     SQLCipher 加密
+bookmarks.db   SQLCipher 加密
+passwords.db   SQLCipher 加密，每条密码再用 AES-256-GCM 单独加密
+config.json    非敏感设置
+chromium/      Chromium 会话数据（Cookie 等）
+```
+
+- 主密码 → Argon2id（64MB 内存、3 轮）→ KEK → 解开随机 256 位 DEK
+- HKDF 从 DEK 派生每个数据库各自的密钥
+- 闲置 15 分钟自动锁定（可调），锁定时清零内存中的密钥
+- 忘记主密码无法恢复；首次设置时要求用户手动输入确认语句
+- Chromium 自身数据（Cookie、缓存、localStorage）无法用 SQLCipher 加密：放入数据文件夹，开启 Electron Cookie 加密（系统钥匙串/密钥环），退出时清空缓存，可选"退出时清除所有 Cookie"
+
+## 5. 数据表
+
+```sql
+-- history.db
+visits(id, url, title, visited_at, duration_ms, transition, referrer_id, tab_id)
+visits_fts  -- 标题 + 网址全文索引
+
+-- bookmarks.db
+bookmarks(id, parent_id, type['folder'|'link'], title, url, position, created_at)
+
+-- passwords.db
+credentials(id, origin, username, password_enc, nonce, created_at, updated_at, last_used_at)
+```
+
+记录规则：
+- 不记录表单数据、页面全文、截图、内部页面
+- 网址清洗：去掉 `utm_*`、`fbclid`、`gclid` 等追踪参数
+- 暂停记录：工具栏开关，暂停时图标变色，状态重启后保留；暂停期间 Cookie 照常保存，只是不写历史
+
+## 6. 隐私默认设置
+
+- 默认搜索引擎 DuckDuckGo
+- 屏蔽第三方 Cookie
+- DNS over HTTPS
+- 摄像头、麦克风、定位、通知等权限每次询问
+- 关闭拼写检查词典的自动下载
+- 无遥测、无崩溃上报
+- User-Agent 去掉 Electron 和应用名标识，降低指纹唯一性
+- 广告和追踪拦截（EasyList + EasyPrivacy）
+
+## 7. 界面配色
+
+| 用途 | 浅色 | 深色 |
+|---|---|---|
+| 背景 | `#FAF9F5` | `#262624` |
+| 标签栏 / 面板 | `#F0EEE6` | `#1F1E1D` |
+| 强调色 | `#D97757` | `#D97757` |
+| 正文 | `#141413` | `#F5F4EE` |
+| 边框 | `#E8E6DC` | `#3A3936` |
+
+## 8. 开发阶段
+
+| 阶段 | 内容 |
+|---|---|
+| P1 骨架 | 窗口、多标签页、地址栏、导航、DuckDuckGo 搜索、主题、基础隐私设置 |
+| P2 加密存储 | 首次启动流程、主密码、解锁/锁定、SQLCipher |
+| P3 浏览记录 | 记录轨迹、暂停开关、历史页面（搜索、删除、导出 CSV/JSON） |
+| P4 收藏夹 | 收藏、收藏夹栏、管理页面、Chrome 导入 |
+| P5 密码管理 | 表单检测、保存、填充、生成器、管理页面 |
+| P6 拦截和下载 | 广告追踪拦截、下载管理 |
+| P7 打包 | dmg / AppImage，Electron 升级流程 |

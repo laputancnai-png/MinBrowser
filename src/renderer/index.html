@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src data:"
+    />
+    <title>MinBrowser</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header id="chrome">
+      <div id="tabbar">
+        <div id="tabs" role="tablist"></div>
+        <button id="new-tab" class="icon-button" title="新建标签页 (⌘/Ctrl+T)" aria-label="新建标签页"></button>
+      </div>
+      <div id="toolbar">
+        <button id="back" class="icon-button" title="后退" aria-label="后退"></button>
+        <button id="forward" class="icon-button" title="前进" aria-label="前进"></button>
+        <button id="reload" class="icon-button" title="重新加载" aria-label="重新加载"></button>
+        <form id="address-form">
+          <input
+            id="address"
+            type="text"
+            spellcheck="false"
+            autocomplete="off"
+            placeholder="搜索 DuckDuckGo 或输入网址"
+            aria-label="地址栏"
+          />
+        </form>
+      </div>
+    </header>
+    <script src="app.js"></script>
+  </body>
+</html>
