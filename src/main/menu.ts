@@ -83,7 +83,7 @@ export function buildMenu(app: BrowserApp): Menu {
     {
       label: '收藏',
       submenu: [
-        { label: '收藏 / 取消收藏此页', accelerator: 'CmdOrCtrl+D', click: () => unlocked() && app.toggleBookmark() },
+        { label: '收藏此页…', accelerator: 'CmdOrCtrl+D', click: () => unlocked() && app.toggleBookmark() },
         { label: '管理收藏夹', accelerator: 'CmdOrCtrl+Shift+O', click: page('bookmarks') },
         {
           label: '显示 / 隐藏收藏夹栏',

@@ -70,6 +70,25 @@ export class BookmarkService {
     return (byParent.get(null) ?? []).map(attach);
   }
 
+  /** The first bookmark for this exact URL, if any. */
+  findByUrl(url: string): Bookmark | undefined {
+    return this.store.get<Bookmark>("SELECT * FROM bookmarks WHERE url = ? AND type = 'link' ORDER BY id LIMIT 1", url);
+  }
+
+  /** Every folder, depth-first in display order, with its nesting depth. */
+  folderList(): { id: number; title: string; depth: number }[] {
+    const out: { id: number; title: string; depth: number }[] = [];
+    const walk = (nodes: BookmarkNode[], depth: number) => {
+      for (const n of nodes) {
+        if (n.type !== 'folder') continue;
+        out.push({ id: n.id, title: n.title, depth });
+        walk(n.children ?? [], depth + 1);
+      }
+    };
+    walk(this.tree(), 0);
+    return out;
+  }
+
   isBookmarked(url: string): boolean {
     return this.store.get('SELECT 1 FROM bookmarks WHERE url = ? LIMIT 1', url) !== undefined;
   }

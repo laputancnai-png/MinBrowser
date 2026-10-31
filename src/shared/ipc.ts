@@ -5,6 +5,10 @@ export const Ipc = {
   /** main -> UI */
   State: 'ui:state',
   FocusAddress: 'ui:focus-address',
+  /** main -> UI: open the bookmark bubble under the star (e.g. from Ctrl+D) */
+  StarRequest: 'ui:star-request',
+  /** Bookmark bubble -> main, invoke(command, ...args) */
+  Popup: 'popup:command',
   /** Internal min:// pages -> main, invoke(method, args) */
   Internal: 'internal',
   /** Tab password agent <-> main */
@@ -74,4 +78,19 @@ export interface MinBrowserApi {
   command(name: string, ...args: unknown[]): Promise<CommandResult>;
   onState(cb: (state: UiState) => void): void;
   onFocusAddress(cb: () => void): void;
+  onStarRequest(cb: () => void): void;
+}
+
+export interface Rect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** What the bookmark bubble shows. */
+export interface PopupData {
+  isNew: boolean;
+  bookmark: { id: number; title: string; url: string; description: string; parentId: number };
+  folders: { id: number; title: string; depth: number }[];
 }

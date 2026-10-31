@@ -424,6 +424,62 @@ async function tabReorder() {
   await app.close();
 }
 
+async function bookmarkBubble() {
+  const { app, ui, go, inTab, cmd } = await launch();
+  await unlockWith(ui, PW2);
+  const bubble = async () => {
+    for (let i = 0; i < 50; i++) {
+      const p = app.windows().find((w) => w.url().endsWith('bookmark-popup.html'));
+      if (p) {
+        await p.waitForSelector('#folder option', { state: 'attached' });
+        return p;
+      }
+      await wait(100);
+    }
+    return null;
+  };
+  const bubbleOpen = () => app.windows().some((w) => w.url().endsWith('bookmark-popup.html'));
+  const treeNow = async () => {
+    await cmd('openPage', 'bookmarks');
+    await wait(1000);
+    return inTab('min://bookmarks', "window.min.call('bookmarks.tree')");
+  };
+  const pathOf = (nodes, url, path = []) => {
+    for (const n of nodes || []) {
+      if (n.url === url) return [...path];
+      const r = pathOf(n.children, url, [...path, n.title]);
+      if (r) return r;
+    }
+    return null;
+  };
+
+  // The star bookmarks the page and opens the bubble to pick a folder.
+  await go(`${SITE}/page/21`);
+  await ui.click('#star');
+  let pop = await bubble();
+  check('star opens the bookmark bubble', !!pop && (await pop.inputValue('#title')) === 'Page 21');
+  const dev = await pop.$$eval('#folder option', (o) => o.find((x) => x.textContent.trim() === 'Dev').value);
+  await pop.selectOption('#folder', dev);
+  await pop.fill('#desc', '气泡里写的描述');
+  await pop.click('#done').catch(() => {});
+  await wait(500);
+  check('bubble closes on done', !bubbleOpen());
+  let tree = await treeNow();
+  check('bubble puts the bookmark in the chosen folder', (pathOf(tree, `http://${SITE}/page/21`) || []).join('/') === '收藏夹栏/Dev');
+
+  // Drag the site icon from the address bar onto a folder in the bookmarks bar.
+  await ui.click('.tab:has-text("Page 21")');
+  await go(`${SITE}/page/22`);
+  await ui.dragAndDrop('#site', '.bar-item:has-text("Dev")');
+  pop = await bubble();
+  check('dropping the site icon on a bar folder opens the bubble there', !!pop && (await pop.$eval('#folder', (s) => s.selectedOptions[0].textContent.trim())) === 'Dev');
+  await pop.keyboard.press('Escape').catch(() => {});
+  await wait(400);
+  tree = await treeNow();
+  check('dropped page is bookmarked in that folder', (pathOf(tree, `http://${SITE}/page/22`) || []).join('/') === '收藏夹栏/Dev');
+  await app.close();
+}
+
 (async () => {
   fs.mkdirSync(DATA, { recursive: true });
   fakeChromeProfile();
@@ -433,6 +489,7 @@ async function tabReorder() {
     await restart();
     await crashRecovery();
     await tabReorder();
+    await bookmarkBubble();
   } finally {
     server.close();
     fs.rmSync(TMP, { recursive: true, force: true });

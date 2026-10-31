@@ -15,6 +15,8 @@ export interface Config {
   showBookmarksBar: boolean;
   autofillPasswords: boolean;
   restoreSession: boolean;
+  /** Where the star puts new bookmarks: the folder chosen last time. */
+  lastBookmarkFolder: number | null;
 }
 
 export const DEFAULT_CONFIG: Config = {
@@ -28,6 +30,7 @@ export const DEFAULT_CONFIG: Config = {
   showBookmarksBar: true,
   autofillPasswords: true,
   restoreSession: true,
+  lastBookmarkFolder: null,
 };
 
 export class ConfigStore {

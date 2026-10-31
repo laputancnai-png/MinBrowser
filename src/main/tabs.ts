@@ -31,6 +31,8 @@ export interface TabHooks {
   navigated(tab: Tab, url: string, transition: Transition): void;
   titleChanged(tab: Tab, title: string): void;
   closed(tab: Tab): void;
+  /** A page got keyboard focus (the user clicked into it). */
+  focused?(tab: Tab): void;
 }
 
 export interface TabSnapshot {
@@ -367,6 +369,7 @@ export class TabManager {
       update();
     });
     wc.on('did-start-loading', update);
+    wc.on('focus', () => this.hooks.focused?.(tab));
     wc.on('did-stop-loading', update);
     // Reset the blocked counter when the navigation starts: the new page's first
     // requests can be blocked before 'did-navigate' reaches us.

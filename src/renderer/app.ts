@@ -17,6 +17,8 @@ const ICONS = {
   stop: '<path d="m4 4 8 8M12 4l-8 8"/>',
   plus: '<path d="M8 3v10M3 8h10"/>',
   close: '<path d="m4 4 8 8M12 4l-8 8"/>',
+  lock: '<rect x="3.5" y="7" width="9" height="6.5" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/>',
+  globe: '<circle cx="8" cy="8" r="5.5"/><path d="M2.5 8h11M8 2.5c1.6 1.6 2.3 3.4 2.3 5.5S9.6 11.9 8 13.5M8 2.5C6.4 4.1 5.7 5.9 5.7 8s.7 3.9 2.3 5.5"/>',
   star: '<path d="m8 2 1.8 3.8 4.2.5-3.1 2.9.8 4.1L8 11.3l-3.7 2 .8-4.1L2 6.3l4.2-.5z"/>',
   key: '<circle cx="5.5" cy="10.5" r="2.8"/><path d="m7.5 8.5 6-6M11.5 4.5l1.6 1.6M10 6l1.4 1.4"/>',
   shield: '<path d="M8 1.8 13 3.6v4c0 3-2.1 5.4-5 6.6-2.9-1.2-5-3.6-5-6.6v-4z"/>',
@@ -41,6 +43,7 @@ const buttons = {
   reload: $<HTMLButtonElement>('reload'),
   newTab: $<HTMLButtonElement>('new-tab'),
   star: $<HTMLButtonElement>('star'),
+  site: $<HTMLButtonElement>('site'),
   key: $<HTMLButtonElement>('key'),
   shield: $<HTMLButtonElement>('shield'),
   record: $<HTMLButtonElement>('record'),
@@ -317,7 +320,17 @@ function renderToolbar(): void {
 
   buttons.star.hidden = !tab?.isWeb;
   buttons.star.classList.toggle('on', !!tab?.bookmarked);
-  buttons.star.title = tab?.bookmarked ? '取消收藏' : '收藏此页';
+  buttons.star.title = tab?.bookmarked ? '编辑收藏' : '收藏此页';
+
+  // The site icon left of the address: drag it onto the bookmarks bar to bookmark the page.
+  const secure = !!tab?.url.startsWith('https://');
+  const siteKey = tab?.isWeb ? (secure ? 'lock' : 'globe') : 'none';
+  if (buttons.site.dataset.icon !== siteKey) {
+    buttons.site.dataset.icon = siteKey;
+    buttons.site.innerHTML = siteKey === 'none' ? '' : svg(secure ? 'lock' : 'globe');
+  }
+  buttons.site.draggable = !!tab?.isWeb;
+  buttons.site.title = tab?.isWeb ? `${secure ? '安全连接' : '连接未加密'} · 按住拖到收藏夹栏即可收藏` : '';
 
   buttons.key.hidden = !tab?.showKey;
 
@@ -352,7 +365,7 @@ function renderBookmarksBar(): void {
   if (state!.bookmarksBar.length === 0) {
     const empty = document.createElement('span');
     empty.className = 'bar-empty';
-    empty.textContent = '点击地址栏中的 ☆ 把网页收藏到这里';
+    empty.textContent = '点击地址栏中的 ☆，或把地址栏左边的图标拖到这里，即可收藏网页';
     bar.replaceChildren(empty);
     return;
   }
@@ -412,7 +425,79 @@ buttons.newTab.addEventListener('click', () => send('newTab'));
 buttons.back.addEventListener('click', () => send('back'));
 buttons.forward.addEventListener('click', () => send('forward'));
 buttons.reload.addEventListener('click', () => send(active()?.loading ? 'stop' : 'reload'));
-buttons.star.addEventListener('click', () => send('toggleBookmark'));
+const rectOf = (el: HTMLElement) => {
+  const r = el.getBoundingClientRect();
+  return { x: r.left, y: r.top, width: r.width, height: r.height };
+};
+buttons.star.addEventListener('click', () => send('starClick', rectOf(buttons.star)));
+// Pressing anywhere else in the browser UI dismisses the bookmark bubble.
+document.addEventListener('pointerdown', (e) => {
+  if (e.target !== buttons.star && !buttons.star.contains(e.target as Node)) send('closePopup');
+}, true);
+api.onStarRequest(() => send('starClick', rectOf(buttons.star)));
+
+// ------------------------------------------------------------------ drag to the bookmarks bar
+
+buttons.site.addEventListener('dragstart', (e) => {
+  const url = active()?.url;
+  if (!url || !e.dataTransfer) return e.preventDefault();
+  e.dataTransfer.setData('text/uri-list', url);
+  e.dataTransfer.setData('text/plain', url);
+  e.dataTransfer.effectAllowed = 'copyLink';
+});
+
+const droppedUrl = (dt: DataTransfer | null): string | null => {
+  if (!dt) return null;
+  const list = dt.getData('text/uri-list').split(/\r?\n/).find((l) => l && !l.startsWith('#'));
+  const url = (list || dt.getData('text/plain')).trim();
+  return /^https?:\/\/\S+$/i.test(url) ? url : null;
+};
+const carriesUrl = (dt: DataTransfer | null) => !!dt && (dt.types.includes('text/uri-list') || dt.types.includes('text/plain'));
+const clearBarMarks = () =>
+  bar.querySelectorAll('.drop-into, .drop-before, .drop-after').forEach((n) => n.classList.remove('drop-into', 'drop-before', 'drop-after'));
+
+type BarZone = { el: HTMLElement; zone: 'into' | 'before' | 'after'; index: number } | null;
+
+/** Which bar item the pointer is over, and whether it means "into", "before" or "after" it. */
+function barZone(e: DragEvent): BarZone {
+  const items = Array.from(bar.querySelectorAll<HTMLElement>('.bar-item'));
+  const el = (e.target as Element | null)?.closest<HTMLElement>('.bar-item');
+  if (!el) return null;
+  const index = items.indexOf(el);
+  const item = state?.bookmarksBar[index];
+  if (!item) return null;
+  const r = el.getBoundingClientRect();
+  const pos = (e.clientX - r.left) / r.width;
+  if (item.type === 'folder' && pos > 0.2 && pos < 0.8) return { el, zone: 'into', index };
+  return { el, zone: pos < 0.5 ? 'before' : 'after', index };
+}
+
+bar.addEventListener('dragover', (e) => {
+  if (!carriesUrl(e.dataTransfer)) return;
+  e.preventDefault();
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+  clearBarMarks();
+  const z = barZone(e);
+  if (z) z.el.classList.add(`drop-${z.zone}`);
+  else bar.lastElementChild?.classList.add('drop-after');
+});
+bar.addEventListener('dragleave', (e) => {
+  if (!bar.contains(e.relatedTarget as Node)) clearBarMarks();
+});
+bar.addEventListener('drop', (e) => {
+  const url = droppedUrl(e.dataTransfer);
+  const z = barZone(e);
+  clearBarMarks();
+  if (!url) return;
+  e.preventDefault();
+  const items = state?.bookmarksBar ?? [];
+  if (z?.zone === 'into') {
+    send('bookmarkDrop', url, items[z.index].id, null, rectOf(z.el));
+  } else {
+    const index = z ? z.index + (z.zone === 'after' ? 1 : 0) : null;
+    send('bookmarkDrop', url, null, index, rectOf(z?.el ?? buttons.star));
+  }
+});
 buttons.key.addEventListener('click', () => send('passwordMenu', ...below(buttons.key)));
 buttons.shield.addEventListener('click', () => send('toggleShield'));
 buttons.record.addEventListener('click', () => send('toggleRecording'));

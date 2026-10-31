@@ -6,6 +6,7 @@ const api: MinBrowserApi = {
   command: (name, ...args) => ipcRenderer.invoke(Ipc.Command, name, ...args),
   onState: (cb) => ipcRenderer.on(Ipc.State, (_e, state: UiState) => cb(state)),
   onFocusAddress: (cb) => ipcRenderer.on(Ipc.FocusAddress, () => cb()),
+  onStarRequest: (cb) => ipcRenderer.on(Ipc.StarRequest, () => cb()),
 };
 
 contextBridge.exposeInMainWorld('minbrowser', api);

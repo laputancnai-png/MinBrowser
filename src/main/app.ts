@@ -12,11 +12,12 @@ import {
 } from 'electron';
 import { accessSync, constants, existsSync, mkdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { BarItem, CommandResult, Ipc, Phase, SavePrompt, SetupDirResult, TabState, UiState } from '../shared/ipc';
+import { BarItem, CommandResult, Ipc, Phase, PopupData, Rect, SavePrompt, SetupDirResult, TabState, UiState } from '../shared/ipc';
 import { generatePassword } from '../shared/password';
 import { siteOf } from '../shared/privacy';
 import { originOf } from '../shared/url';
 import { AdBlocker } from './adblock';
+import { BookmarkPopup } from './bookmark-popup';
 import { BAR_ID, BOOKMARKS_SCHEMA, BookmarkNode, BookmarkService } from './bookmarks';
 import { ConfigStore, location } from './config';
 import { DownloadManager } from './downloads';
@@ -64,6 +65,7 @@ export class BrowserApp {
   adblock: AdBlocker | null = null;
   adblockStatus: { updating: boolean; error: string | null } = { updating: false, error: null };
   downloads: DownloadManager | null = null;
+  popup: BookmarkPopup | null = null;
   private vault: Vault | null = null;
   private recorder: HistoryRecorder;
   private pendingSave: PendingSave | null = null;
@@ -99,6 +101,7 @@ export class BrowserApp {
     });
     this.watchForAutoLock();
     this.createWindow();
+    this.registerPopupIpc();
   }
 
   // ---------------------------------------------------------------- window
@@ -129,6 +132,7 @@ export class BrowserApp {
       },
     });
     this.win = win;
+    this.popup = new BookmarkPopup(win);
     const ui = win.webContents;
     ui.on('will-navigate', (e) => e.preventDefault());
     ui.setWindowOpenHandler(() => ({ action: 'deny' }));
@@ -206,6 +210,13 @@ export class BrowserApp {
       if (typeof args[i] !== 'string') throw new Error('bad argument');
       return args[i] as string;
     };
+    const rect = (v: unknown): Rect => {
+      const r = v as Rect;
+      if (!r || [r.x, r.y, r.width, r.height].some((n) => typeof n !== 'number' || !Number.isFinite(n))) {
+        throw new Error('bad argument');
+      }
+      return { x: r.x, y: r.y, width: r.width, height: r.height };
+    };
     const num = (i: number) => {
       if (typeof args[i] !== 'number' || !Number.isFinite(args[i])) throw new Error('bad argument');
       return args[i] as number;
@@ -253,6 +264,17 @@ export class BrowserApp {
         return tabs.setChromeHeight(num(0));
       case 'toggleBookmark':
         return this.toggleBookmark();
+      case 'closePopup':
+        return this.popup?.close();
+      case 'starClick':
+        return this.starClick(rect(args[0]));
+      case 'bookmarkDrop':
+        return this.bookmarkDrop(
+          str(0),
+          args[1] === null ? null : num(1),
+          args[2] === null ? null : num(2),
+          rect(args[3]),
+        );
       case 'toggleRecording':
         return this.setRecordingPaused(!this.config!.get().recordingPaused);
       case 'toggleShield':
@@ -416,6 +438,8 @@ export class BrowserApp {
         this.recorder.navigated(tab.id, url, tab.view.webContents.getTitle(), transition, tab.openerId);
       },
       titleChanged: (tab, title) => this.recorder.titleChanged(tab.id, title),
+      // Clicking into the page dismisses the bookmark bubble, like any popup.
+      focused: () => this.popup?.close(),
       closed: (tab) => {
         this.scheduleSessionSave();
         this.recorder.finish(tab.id);
@@ -455,6 +479,7 @@ export class BrowserApp {
   lock(): void {
     if (this.phase !== 'unlocked' || !this.services) return;
     this.saveSession();
+    this.popup?.close();
     this.recorder.finishAll();
     this.pendingSave = null;
     this.closeServices();
@@ -524,13 +549,112 @@ export class BrowserApp {
     return { url, title: tab.view.webContents.getTitle() };
   }
 
+  /** Ctrl/Cmd+D: the UI knows where the star is, so ask it to open the bubble there. */
   toggleBookmark(): void {
+    if (this.activeWebUrl()) this.win?.webContents.send(Ipc.StarRequest);
+  }
+
+  /** The folder new bookmarks go to: the one picked last time, if it still exists. */
+  private bookmarkFolder(): number {
+    const id = this.config?.get().lastBookmarkFolder;
+    return id && this.services?.bookmarks.get(id)?.type === 'folder' ? id : BAR_ID;
+  }
+
+  /**
+   * The star: bookmark the page right away (in the last-used folder) and open
+   * the bubble to rename it or pick another folder. Already bookmarked: just
+   * open the bubble to edit it.
+   */
+  starClick(anchor: Rect): void {
     const page = this.activeWebUrl();
     const bookmarks = this.services?.bookmarks;
     if (!page || !bookmarks) return;
-    if (bookmarks.isBookmarked(page.url)) bookmarks.removeUrl(page.url);
-    else bookmarks.addLink(BAR_ID, page.title, page.url);
+    const existing = bookmarks.findByUrl(page.url);
+    const id = existing?.id ?? bookmarks.addLink(this.bookmarkFolder(), page.title, page.url);
     this.emit();
+    this.popup?.show(id, !existing, anchor);
+  }
+
+  /**
+   * Something was dropped on the bookmarks bar: the page's site icon, or a link
+   * dragged out of a page. `folderId` = dropped onto that folder; otherwise it
+   * goes into the bar at `index` (null = at the end).
+   */
+  bookmarkDrop(url: string, folderId: number | null, index: number | null, anchor: Rect): void {
+    const bookmarks = this.services?.bookmarks;
+    if (!bookmarks || !/^https?:\/\//i.test(url)) return;
+    const parent = folderId !== null && bookmarks.get(folderId)?.type === 'folder' ? folderId : BAR_ID;
+    const page = this.activeWebUrl();
+    let title = page && page.url === url ? page.title : '';
+    if (!title) {
+      try {
+        title = new URL(url).hostname.replace(/^www\./, '');
+      } catch {
+        title = url;
+      }
+    }
+    const siblings = bookmarks.children(parent);
+    const same = siblings.find((b) => b.url === url);
+    const id = same?.id ?? bookmarks.addLink(parent, title, url);
+    if (folderId === null && index !== null) {
+      // `index` counts the bar as it looked during the drag; if this page was
+      // already on it to the left of the drop point, its own slot goes away.
+      const current = same ? siblings.indexOf(same) : -1;
+      bookmarks.move(id, parent, current !== -1 && current < index ? index - 1 : index);
+    }
+    this.config?.set({ lastBookmarkFolder: parent });
+    this.emit();
+    this.popup?.show(id, !same, anchor);
+  }
+
+  private registerPopupIpc(): void {
+    ipcMain.handle(Ipc.Popup, (e, name: unknown, ...args: unknown[]) => {
+      const popup = this.popup;
+      const bookmarks = this.services?.bookmarks;
+      if (!popup?.owns(e.sender) || popup.bookmarkId === null || !bookmarks) throw new Error('forbidden');
+      if (name === 'fit') {
+        if (typeof args[0] === 'number' && Number.isFinite(args[0])) popup.fit(args[0]);
+        return null;
+      }
+      const id = popup.bookmarkId;
+      const b = bookmarks.get(id);
+      if (!b) {
+        popup.close();
+        return null;
+      }
+      switch (name) {
+        case 'data': {
+          const data: PopupData = {
+            isNew: popup.isNew,
+            bookmark: { id, title: b.title, url: b.url ?? '', description: b.description, parentId: b.parent_id ?? BAR_ID },
+            folders: bookmarks.folderList(),
+          };
+          return data;
+        }
+        case 'save': {
+          const [title, folder, description] = args;
+          if (typeof title !== 'string' || typeof folder !== 'number' || typeof description !== 'string') throw new Error('bad argument');
+          if (title.length > 500 || description.length > 1000) throw new Error('bad argument');
+          bookmarks.update(id, { title, description });
+          if (folder !== b.parent_id && bookmarks.get(folder)?.type === 'folder') bookmarks.move(id, folder, 1_000_000);
+          this.config?.set({ lastBookmarkFolder: folder });
+          break;
+        }
+        case 'remove':
+          bookmarks.remove(id);
+          break;
+        case 'manage':
+          this.openPage('bookmarks');
+          break;
+        case 'close':
+          break;
+        default:
+          throw new Error('unknown command');
+      }
+      popup.close();
+      this.emit();
+      return null;
+    });
   }
 
   openBookmark(id: number, newTab: boolean): void {

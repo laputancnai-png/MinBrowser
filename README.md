@@ -46,6 +46,12 @@ sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
 不要用 `--no-sandbox` 绕过：那会关掉网页进程的沙箱，恶意网页更容易攻击到你的电脑。
 安装 `.deb` 包时安装脚本会自动处理这个问题。
 
+## 收藏网页
+
+- 点地址栏右边的 ☆：立即收藏到上次用的文件夹，并弹出小窗口，可以改名称、选文件夹、写描述
+- 或者按住地址栏左边的图标（🔒 / 🌐），拖到收藏夹栏：拖到文件夹上就放进那个文件夹，拖到两个收藏之间就插在那里
+- 网页里的链接也可以直接拖到收藏夹栏上
+
 ## 第一次使用
 
 1. 选择一个文件夹存放数据（之后可以直接复制这个文件夹备份）
@@ -73,7 +79,7 @@ sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
 | 后退 / 前进 | ⌘[ / ⌘] | Alt+← / Alt+→ |
 | 切换标签页 | Ctrl+Tab、⌘1–9 | Ctrl+Tab、Ctrl+1–9 |
 | 标签页左移 / 右移（也可以直接拖动标签） | Ctrl+Shift+PageUp / PageDown | Ctrl+Shift+PageUp / PageDown |
-| 收藏 / 取消收藏 | ⌘D | Ctrl+D |
+| 收藏此页（弹出窗口里选文件夹） | ⌘D | Ctrl+D |
 | 历史记录 | ⌘Y | Ctrl+H |
 | 暂停 / 恢复记录 | ⌘⇧P | Ctrl+Shift+P |
 | 收藏夹栏 | ⌘⇧B | Ctrl+Shift+B |
