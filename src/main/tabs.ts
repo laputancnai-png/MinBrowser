@@ -22,6 +22,8 @@ export interface Tab {
   hasLoginForm: boolean;
   /** A saved login was already filled automatically on this page. */
   autofilled: boolean;
+  /** A restored tab that hasn't been looked at yet: loads when first activated. */
+  deferred: { url: string; title: string } | null;
 }
 
 export interface TabHooks {
@@ -63,7 +65,10 @@ export class TabManager {
     win.on('resize', () => this.layout());
   }
 
-  create(url: string = NEW_TAB_URL, opts: { activate?: boolean; transition?: Transition; openerId?: number | null } = {}): number {
+  create(
+    url: string = NEW_TAB_URL,
+    opts: { activate?: boolean; transition?: Transition; openerId?: number | null; deferredTitle?: string } = {},
+  ): number {
     const { activate = true, transition = url === NEW_TAB_URL ? null : 'typed', openerId = null } = opts;
     const id = this.nextId++;
     const view = new WebContentsView({
@@ -89,6 +94,7 @@ export class TabManager {
       blocked: 0,
       hasLoginForm: false,
       autofilled: false,
+      deferred: null,
     };
     this.tabs.set(id, tab);
 
@@ -98,7 +104,8 @@ export class TabManager {
     this.order.splice(index === -1 ? this.order.length : index + 1, 0, id);
 
     this.wire(tab);
-    view.webContents.loadURL(url);
+    if (opts.deferredTitle !== undefined && !activate) tab.deferred = { url, title: opts.deferredTitle };
+    else view.webContents.loadURL(url);
     if (activate) this.activate(id);
     else this.hooks.changed();
     if (url === NEW_TAB_URL && activate) this.focusAddress();
@@ -134,6 +141,12 @@ export class TabManager {
     const prev = this.active();
     if (prev && prev !== tab) this.win.contentView.removeChildView(prev.view);
     this.activeId = id;
+    if (tab.deferred) {
+      const { url } = tab.deferred;
+      tab.deferred = null;
+      tab.pendingTransition = 'restore';
+      tab.view.webContents.loadURL(url);
+    }
     if (this.visible) {
       this.win.contentView.addChildView(tab.view);
       this.layout();
@@ -271,14 +284,37 @@ export class TabManager {
 
   /** Current URL of a tab as the user sees it (the failed address on error pages). */
   pageUrl(tab: Tab): string {
-    return tab.failedUrl ?? tab.view.webContents.getURL();
+    return tab.deferred?.url ?? tab.failedUrl ?? tab.view.webContents.getURL();
+  }
+
+  /**
+   * Bring back saved tabs. Only the active one loads now; the others load
+   * when they are first opened, so restoring many tabs stays fast.
+   */
+  restore(tabs: { url: string; title: string }[], activeIndex: number): void {
+    const ids = tabs.map((t) => this.create(t.url, { activate: false, deferredTitle: t.title, transition: 'restore' }));
+    this.activate(ids[Math.min(Math.max(activeIndex, 0), ids.length - 1)]);
+  }
+
+  /** What to save so the tabs can be restored: real pages only, in order. */
+  sessionTabs(): { tabs: { url: string; title: string }[]; activeIndex: number } {
+    const tabs: { url: string; title: string }[] = [];
+    let activeIndex = 0;
+    for (const tab of this.all()) {
+      if (tab.view.webContents.isDestroyed()) continue;
+      const url = this.pageUrl(tab);
+      if (!url || url === NEW_TAB_URL || url === 'about:blank' || url.startsWith(ERROR_PAGE)) continue;
+      if (tab.id === this.activeId) activeIndex = tabs.length;
+      tabs.push({ url, title: tab.deferred?.title ?? tab.view.webContents.getTitle() });
+    }
+    return { tabs, activeIndex };
   }
 
   snapshot(): TabSnapshot[] {
     return this.all().map((tab) => {
       const wc = tab.view.webContents;
       const url = this.pageUrl(tab);
-      let title = wc.getTitle();
+      let title = tab.deferred?.title || wc.getTitle();
       if (url === NEW_TAB_URL) title = '新标签页';
       else if (!title || title === url) title = displayUrl(url).replace(/^https?:\/\/(www\.)?/, '');
       return {
@@ -287,7 +323,7 @@ export class TabManager {
         pageUrl: url,
         title,
         favicon: tab.favicon,
-        loading: wc.isLoading(),
+        loading: !tab.deferred && wc.isLoading(),
         canGoBack: wc.navigationHistory.canGoBack(),
         canGoForward: wc.navigationHistory.canGoForward(),
         blocked: tab.blocked,
@@ -352,6 +388,19 @@ export class TabManager {
       tab.pendingTransition = null;
       const query = new URLSearchParams({ code: description, url });
       wc.loadURL(`${ERROR_PAGE}?${query}`);
+    });
+    // A crashed page shows the error page instead of going blank; reload brings it back.
+    wc.on('render-process-gone', (_e, details) => {
+      if (details.reason === 'clean-exit') return;
+      const url = wc.getURL();
+      if (!url || url.startsWith(ERROR_PAGE) || isInternalUrl(url)) {
+        if (url && isInternalUrl(url) && !url.startsWith(ERROR_PAGE)) wc.loadURL(url);
+        return;
+      }
+      tab.failedUrl = url;
+      const query = new URLSearchParams({ code: `RENDERER_CRASHED (${details.reason})`, url });
+      wc.loadURL(`${ERROR_PAGE}?${query}`);
+      update();
     });
     wc.on('page-favicon-updated', async (_e, favicons) => {
       const pageUrl = wc.getURL();

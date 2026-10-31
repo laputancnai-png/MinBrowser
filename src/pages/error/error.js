@@ -9,6 +9,7 @@ const MESSAGES = [
   [/TIMED_OUT/, '连接超时', '网站响应太慢，请稍后再试。'],
   [/CERT|SSL/, '连接不安全', '这个网站的安全证书有问题，为保护你的数据已阻止访问。'],
   [/BLOCKED/, '已阻止访问', '这个请求被浏览器阻止了。'],
+  [/RENDERER_CRASHED/, '这个网页崩溃了', '可能是网页占用内存过多或出错。点刷新按钮可以重新打开。'],
 ];
 
 const [, title, detail] = MESSAGES.find(([re]) => re.test(code)) || [null, '无法打开这个网页', '加载时出错，请稍后重新加载。'];

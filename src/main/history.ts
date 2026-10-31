@@ -1,6 +1,6 @@
 import { EncryptedStore, Param } from './store';
 
-export type Transition = 'typed' | 'link' | 'bookmark' | 'back_forward' | 'reload' | 'new_tab';
+export type Transition = 'typed' | 'link' | 'bookmark' | 'back_forward' | 'reload' | 'new_tab' | 'restore';
 
 export interface Visit {
   id: number;

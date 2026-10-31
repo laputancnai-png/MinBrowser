@@ -182,3 +182,35 @@ describe('moving and removing several bookmarks', () => {
     expect(b.get(BAR_ID)).toBeDefined();
   });
 });
+
+describe('SessionService', () => {
+  it('saves and restores open tabs, also after a crash', async () => {
+    const { SESSION_SCHEMA, SessionService } = await import('../src/main/session');
+    const dir = mkdtempSync(join(tmpdir(), 'minb-session-'));
+    const key = randomKey();
+    const open = () => EncryptedStore.open(dir, 'session', Buffer.from(key), SESSION_SCHEMA);
+    const s = new SessionService(open());
+    expect(s.load()).toEqual({ tabs: [], activeIndex: 0 });
+    const tabs = [
+      { url: 'https://a.com/', title: 'A' },
+      { url: 'min://history/', title: '历史记录' },
+      { url: 'https://c.com/x', title: 'C' },
+    ];
+    s.save({ tabs, activeIndex: 2 });
+    // no close(): the process "crashed"
+    const s2 = new SessionService(open());
+    expect(s2.load()).toEqual({ tabs, activeIndex: 2 });
+    s2.clear();
+    expect(new SessionService(open()).load().tabs).toEqual([]);
+  });
+
+  it('skips writing when nothing changed', async () => {
+    const { SESSION_SCHEMA, SessionService } = await import('../src/main/session');
+    const st = store(SESSION_SCHEMA);
+    const s = new SessionService(st);
+    s.save({ tabs: [{ url: 'https://a.com/', title: 'A' }], activeIndex: 0 });
+    const size = st.journalSize;
+    s.save({ tabs: [{ url: 'https://a.com/', title: 'A' }], activeIndex: 0 });
+    expect(st.journalSize).toBe(size);
+  });
+});

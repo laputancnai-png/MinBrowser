@@ -23,6 +23,11 @@ export class HistoryRecorder {
     const prev = this.current.get(tabId);
     // A reload is the same visit continuing, not a new one.
     if (transition === 'reload' && prev) return;
+    // Reopening tabs after a restart isn't a new visit either.
+    if (transition === 'restore') {
+      this.finish(tabId);
+      return;
+    }
     const referrer = transition === 'link' ? (prev ?? (openerTabId !== null ? this.current.get(openerTabId) : undefined)) : undefined;
     this.finish(tabId);
 

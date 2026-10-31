@@ -325,6 +325,79 @@ async function restart() {
   await app.close();
 }
 
+async function unlockWith(ui, pw) {
+  await ui.waitForSelector('#unlock:not([hidden])');
+  await ui.fill('#unlock-pw', pw);
+  await ui.click('#unlock-btn');
+  await ui.waitForSelector('#chrome:not([hidden])', { timeout: 15000 });
+  await wait(800);
+}
+
+const tabTitles = (ui) => ui.$$eval('.tab-title', (t) => t.map((x) => x.textContent));
+const activeTitle = (ui) => ui.$eval('.tab.active .tab-title', (t) => t.textContent);
+/** URLs actually loaded in tab processes (deferred tabs have none yet). */
+const loadedUrls = (app) => app.evaluate(({ webContents }) => webContents.getAllWebContents().map((w) => w.getURL()));
+
+async function crashRecovery() {
+  // 1. The previous run quit normally with internal pages open: they come back.
+  let { app, ui, cmd, inTab, go } = await launch();
+  await unlockWith(ui, PW2);
+  check('tabs come back after a normal quit', (await tabTitles(ui)).includes('设置'), JSON.stringify(await tabTitles(ui)));
+
+  // 2. Open some pages, then kill the browser outright.
+  await go(`${SITE}/page/5`);
+  await cmd('newTab');
+  await go(`${SITE}/tracked`);
+  await cmd('newTab');
+  await go(`${SITE}/login`);
+  await ui.click('.tab:has-text("Tracked Page")');
+  await wait(1500);
+  await cmd('openPage', 'history');
+  await wait(1000);
+  const visitsBefore = (await inTab('min://history', "window.min.call('history.search', {})")).length;
+  await ui.click('.tab:has-text("Tracked Page")');
+  await wait(1500); // let the debounced save run
+  app.process().kill('SIGKILL');
+  await wait(1000);
+
+  // 3. Start again: everything is back, the same tab is in front.
+  ({ app, ui, cmd, inTab, go } = await launch());
+  await unlockWith(ui, PW2);
+  const titles = await tabTitles(ui);
+  check('tabs restored after a crash', ['Page 5', 'Tracked Page 隐私测试', 'Login Page', '历史记录'].every((t) => titles.includes(t)), JSON.stringify(titles));
+  check('the same tab is active again', (await activeTitle(ui)) === 'Tracked Page 隐私测试');
+  check('background tabs wait until opened', !(await loadedUrls(app)).some((u) => u.includes('/login')));
+  await ui.click('.tab:has-text("Login Page")');
+  await wait(1200);
+  check('a restored tab loads when opened', (await loadedUrls(app)).some((u) => u.includes('/login')));
+  await ui.click('.tab:has-text("历史记录")');
+  await wait(1200);
+  const visitsAfter = (await inTab('min://history', "window.min.call('history.search', {})")).length;
+  check('restoring does not add history visits', visitsAfter === visitsBefore, `${visitsBefore} -> ${visitsAfter}`);
+
+  // 4. A single page crashing shows an error page; reload brings it back.
+  await ui.click('.tab:has-text("Page 5")');
+  await wait(800);
+  await app.evaluate(({ webContents }) => webContents.getAllWebContents().find((w) => w.getURL().includes('/page/5')).forcefullyCrashRenderer());
+  await wait(1500);
+  check('a crashed page shows the crash page', (await activeTitle(ui)) === '这个网页崩溃了', await activeTitle(ui));
+  check('the address bar keeps the crashed page address', (await ui.inputValue('#address')).includes('/page/5'));
+  await ui.click('#reload');
+  await wait(1500);
+  check('reload brings the crashed page back', (await activeTitle(ui)) === 'Page 5');
+
+  // 5. With the setting off, nothing is restored.
+  await cmd('openPage', 'settings');
+  await wait(1000);
+  await inTab('min://settings', "window.min.call('settings.set', { restoreSession: false })");
+  await wait(1200);
+  await app.close();
+  ({ app, ui } = await launch());
+  await unlockWith(ui, PW2);
+  check('no restore when turned off', JSON.stringify(await tabTitles(ui)) === '["新标签页"]', JSON.stringify(await tabTitles(ui)));
+  await app.close();
+}
+
 (async () => {
   fs.mkdirSync(DATA, { recursive: true });
   fakeChromeProfile();
@@ -332,6 +405,7 @@ async function restart() {
   try {
     await firstRun();
     await restart();
+    await crashRecovery();
   } finally {
     server.close();
     fs.rmSync(TMP, { recursive: true, force: true });

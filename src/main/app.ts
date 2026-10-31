@@ -25,6 +25,7 @@ import { serveInternalPages } from './pages';
 import { PASSWORDS_SCHEMA, PasswordService } from './passwords';
 import { hardenSession } from './privacy';
 import { HistoryRecorder } from './recorder';
+import { SESSION_SCHEMA, SessionService } from './session';
 import { SITES_SCHEMA, SiteService } from './sites';
 import { EncryptedStore } from './store';
 import { Tab, TabManager } from './tabs';
@@ -38,6 +39,7 @@ interface Services {
   bookmarks: BookmarkService;
   passwords: PasswordService;
   sites: SiteService;
+  session: SessionService;
   stores: EncryptedStore[];
 }
 
@@ -126,10 +128,14 @@ export class BrowserApp {
     const ui = win.webContents;
     ui.on('will-navigate', (e) => e.preventDefault());
     ui.setWindowOpenHandler(() => ({ action: 'deny' }));
-    ui.once('did-finish-load', () => {
-      this.emit();
-      win.show();
+    ui.once('did-finish-load', () => win.show());
+    // Also after the UI reloads itself following a crash.
+    ui.on('did-finish-load', () => this.emit());
+    ui.on('render-process-gone', (_e, details) => {
+      if (details.reason !== 'clean-exit' && !win.isDestroyed()) ui.reload();
     });
+    // Save the open tabs while they still exist; after this the window and its pages are gone.
+    win.on('close', () => this.saveSession());
     win.on('closed', () => {
       this.win = null;
     });
@@ -343,11 +349,14 @@ export class BrowserApp {
       stores.push(passwords);
       const sites = open('sites', SITES_SCHEMA);
       stores.push(sites);
+      const session = open('session', SESSION_SCHEMA);
+      stores.push(session);
       this.services = {
         history: new HistoryService(history),
         bookmarks: new BookmarkService(bookmarks),
         passwords: new PasswordService(passwords, vault.key('password-entries')),
         sites: new SiteService(sites),
+        session: new SessionService(session),
         stores,
       };
     } catch (err) {
@@ -389,7 +398,10 @@ export class BrowserApp {
     this.registerTabIpc();
 
     this.tabs = new TabManager(this.win!, this.win!.webContents, web, {
-      changed: () => this.emit(),
+      changed: () => {
+        this.emit();
+        this.scheduleSessionSave();
+      },
       navigated: (tab, url, transition) => {
         // The save prompt survives the redirect after logging in, but not the user going elsewhere.
         if (this.pendingSave?.tabId === tab.id && (transition === 'typed' || transition === 'bookmark')) {
@@ -399,16 +411,44 @@ export class BrowserApp {
       },
       titleChanged: (tab, title) => this.recorder.titleChanged(tab.id, title),
       closed: (tab) => {
+        this.scheduleSessionSave();
         this.recorder.finish(tab.id);
         if (this.pendingSave?.tabId === tab.id) this.pendingSave = null;
       },
     });
-    this.tabs.create();
+    const saved = this.config?.get().restoreSession ? this.services?.session.load() : undefined;
+    if (saved && saved.tabs.length > 0) this.tabs.restore(saved.tabs, saved.activeIndex);
+    else this.tabs.create();
     void this.maybeUpdateAdblock();
+  }
+
+  // ---------------------------------------------------------------- session restore
+
+  private sessionTimer: NodeJS.Timeout | null = null;
+
+  /** Save the open tabs shortly after things settle (pages fire many events while loading). */
+  private scheduleSessionSave(): void {
+    if (this.sessionTimer) clearTimeout(this.sessionTimer);
+    this.sessionTimer = setTimeout(() => this.saveSession(), 800);
+  }
+
+  /** Write the open tabs now. Safe to call any time; does nothing while locked. */
+  saveSession(): void {
+    if (this.sessionTimer) clearTimeout(this.sessionTimer);
+    this.sessionTimer = null;
+    const session = this.services?.session;
+    if (!session || !this.tabs || !this.win || this.win.isDestroyed()) return;
+    try {
+      if (this.config?.get().restoreSession) session.save(this.tabs.sessionTabs());
+      else session.clear();
+    } catch (err) {
+      console.error('failed to save open tabs', err);
+    }
   }
 
   lock(): void {
     if (this.phase !== 'unlocked' || !this.services) return;
+    this.saveSession();
     this.recorder.finishAll();
     this.pendingSave = null;
     this.closeServices();
@@ -450,6 +490,7 @@ export class BrowserApp {
   async shutdown(): Promise<void> {
     if (this.quitting) return;
     this.quitting = true;
+    this.saveSession();
     this.recorder.finishAll();
     this.closeServices();
     if (this.web) {

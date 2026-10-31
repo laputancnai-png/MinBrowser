@@ -193,7 +193,7 @@ export function registerInternalApi(app: BrowserApp): void {
     'settings.set': (patch) => {
       const p = (patch ?? {}) as Record<string, unknown>;
       const next: Partial<Config> = {};
-      for (const key of ['askDownloadLocation', 'clearCookiesOnExit', 'adblockEnabled', 'showBookmarksBar', 'autofillPasswords'] as const) {
+      for (const key of ['askDownloadLocation', 'clearCookiesOnExit', 'adblockEnabled', 'showBookmarksBar', 'autofillPasswords', 'restoreSession'] as const) {
         if (key in p) next[key] = bool(p[key]);
       }
       if ('autoLockMinutes' in p) {
