@@ -19,6 +19,20 @@ npm run typecheck  # 类型检查
 打包安装文件（dmg / AppImage / deb）、macOS 未签名应用的打开方法、升级 Electron
 的步骤，见 [docs/RELEASING.md](docs/RELEASING.md)。
 
+## Linux：启动时报 chrome-sandbox 错误
+
+如果 `npm start` 报 `The SUID sandbox helper binary was found, but is not configured correctly`，
+说明系统限制了普通用户创建沙箱（Ubuntu 23.10 及以后的版本默认如此）。
+给开发用的 Electron 设置一次沙箱权限即可（重新 `npm install` 后需要再执行一次）：
+
+```bash
+sudo chown root:root node_modules/electron/dist/chrome-sandbox
+sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
+```
+
+不要用 `--no-sandbox` 绕过：那会关掉网页进程的沙箱，恶意网页更容易攻击到你的电脑。
+安装 `.deb` 包时安装脚本会自动处理这个问题。
+
 ## 第一次使用
 
 1. 选择一个文件夹存放数据（之后可以直接复制这个文件夹备份）
