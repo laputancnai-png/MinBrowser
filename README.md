@@ -12,8 +12,18 @@
 npm install
 npm start          # 构建并启动
 npm test           # 单元测试
+npm run test:e2e   # 端到端测试（驱动真实的浏览器窗口；无图形界面的 Linux 上用 xvfb-run -a）
 npm run typecheck  # 类型检查
 ```
+
+打包安装文件（dmg / AppImage / deb）、macOS 未签名应用的打开方法、升级 Electron
+的步骤，见 [docs/RELEASING.md](docs/RELEASING.md)。
+
+## 第一次使用
+
+1. 选择一个文件夹存放数据（之后可以直接复制这个文件夹备份）
+2. 设置主密码，并输入确认语句。**忘记主密码，数据将无法恢复。**
+3. 想从 Chrome 搬过来？打开 菜单 ⋯ → 收藏夹 → “从 Chrome 导入”
 
 ## 进度
 
@@ -23,7 +33,7 @@ npm run typecheck  # 类型检查
 - [x] P4 收藏夹：收藏夹栏、管理页面、Chrome 导入
 - [x] P5 密码管理：保存、填充、生成、管理页面
 - [x] P6 广告追踪拦截、下载管理
-- [ ] P7 打包（dmg / AppImage）
+- [x] P7 打包：dmg / AppImage / deb，安全加固，GitHub Actions 自动构建
 
 ## 快捷键
 

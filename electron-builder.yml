@@ -1,0 +1,45 @@
+appId: app.minbrowser.browser
+productName: MinBrowser
+copyright: MinBrowser
+directories:
+  output: out
+  buildResources: build
+# Everything the app needs is bundled into dist/ by esbuild; no node_modules are shipped.
+files:
+  - dist/**/*
+  - "!**/*.map"
+  - package.json
+asar: true
+
+# Harden the packaged binary (https://www.electronjs.org/docs/latest/tutorial/fuses).
+electronFuses:
+  runAsNode: false
+  enableCookieEncryption: true
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
+
+mac:
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+  category: public.app-category.productivity
+  icon: build/icon.png
+  hardenedRuntime: true
+  # Unsigned by default. To sign, set CSC_LINK / CSC_KEY_PASSWORD (see docs/RELEASING.md).
+  identity: null
+dmg:
+  title: MinBrowser
+
+linux:
+  target:
+    - AppImage
+    - deb
+  category: Network
+  syncDesktopName: true
+  icon: build/icon.png
+  maintainer: MinBrowser
+  synopsis: A private browser that keeps your data encrypted on your own disk
+deb:
+  depends: [libsecret-1-0]
