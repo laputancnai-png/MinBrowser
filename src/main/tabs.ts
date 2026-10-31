@@ -20,6 +20,8 @@ export interface Tab {
   lastUrl: string;
   blocked: number;
   hasLoginForm: boolean;
+  /** A saved login was already filled automatically on this page. */
+  autofilled: boolean;
 }
 
 export interface TabHooks {
@@ -86,6 +88,7 @@ export class TabManager {
       lastUrl: '',
       blocked: 0,
       hasLoginForm: false,
+      autofilled: false,
     };
     this.tabs.set(id, tab);
 
@@ -314,11 +317,15 @@ export class TabManager {
     // Reset the blocked counter when the navigation starts: the new page's first
     // requests can be blocked before 'did-navigate' reaches us.
     wc.on('did-start-navigation', (details) => {
-      if (details.isMainFrame && !details.isSameDocument) tab.blocked = 0;
+      if (details.isMainFrame && !details.isSameDocument) {
+        tab.blocked = 0;
+        // Same race for the login form report from the new page.
+        tab.hasLoginForm = false;
+        tab.autofilled = false;
+      }
     });
     wc.on('did-navigate', (_e, url) => {
       tab.favicon = null;
-      tab.hasLoginForm = false;
       if (!url.startsWith(ERROR_PAGE)) {
         tab.failedUrl = null;
         tab.lastUrl = stripHash(url);
@@ -332,6 +339,7 @@ export class TabManager {
       // Single-page apps change the path with pushState; a #fragment alone is not a new page.
       if (stripHash(url) !== tab.lastUrl) {
         tab.lastUrl = stripHash(url);
+        tab.autofilled = false;
         this.hooks.navigated(tab, url, tab.pendingTransition ?? 'link');
       }
       tab.pendingTransition = null;

@@ -115,10 +115,12 @@ export function startPasswordAgent(): void {
     return fields.find((f) => f === focused) ?? fields.find((f) => focusedForm && f.form === focusedForm) ?? fields[0];
   };
 
-  ipcRenderer.on(Ipc.PwFill, (_e, data: { username: string; password: string }) => {
+  ipcRenderer.on(Ipc.PwFill, (_e, data: { username: string; password: string; auto?: boolean }) => {
     const pw = targetPasswordField();
     if (!pw) return;
     const user = usernameFieldFor(pw);
+    // Filling on page load must never overwrite what the user already typed.
+    if (data.auto && (pw.value || user?.value)) return;
     if (user && data.username) setValue(user, data.username);
     setValue(pw, data.password);
   });

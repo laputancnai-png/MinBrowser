@@ -13,6 +13,7 @@ export interface Config {
   adblockEnabled: boolean;
   adblockUpdatedAt: number | null;
   showBookmarksBar: boolean;
+  autofillPasswords: boolean;
 }
 
 export const DEFAULT_CONFIG: Config = {
@@ -24,6 +25,7 @@ export const DEFAULT_CONFIG: Config = {
   adblockEnabled: true,
   adblockUpdatedAt: null,
   showBookmarksBar: true,
+  autofillPasswords: true,
 };
 
 export class ConfigStore {

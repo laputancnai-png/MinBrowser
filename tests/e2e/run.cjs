@@ -262,7 +262,7 @@ async function firstRun() {
 }
 
 async function restart() {
-  const { app, ui, cmd, inTab } = await launch();
+  const { app, ui, cmd, inTab, go } = await launch();
   await ui.waitForSelector('#unlock:not([hidden])');
   check('restart opens the lock screen', (await ui.textContent('#unlock-dir')) === DATA);
   await ui.fill('#unlock-pw', PW);
@@ -270,6 +270,16 @@ async function restart() {
   await ui.waitForSelector('#chrome:not([hidden])', { timeout: 15000 });
   await wait(500);
   check('bookmarks persisted', (await ui.textContent('#bookmarks-bar')).includes('Chrome Bar Link'));
+  await go(`${SITE}/login`, 1500);
+  check('saved login filled automatically', (await inTab('/login', "u.value + '|' + p.value")) === 'alice|s3cret-pass-XYZ');
+  await cmd('openPage', 'settings');
+  await wait(1000);
+  await inTab('min://settings', "window.min.call('settings.set', { autofillPasswords: false })");
+  await go(`${SITE}/login`, 1500);
+  check('autofill can be turned off', (await inTab('/login', "u.value + '|' + p.value")) === '|');
+  await cmd('openPage', 'settings');
+  await wait(800);
+  await inTab('min://settings', "window.min.call('settings.set', { autofillPasswords: true })");
   await cmd('openPage', 'passwords');
   await wait(1000);
   const creds = await inTab('min://passwords', "window.min.call('passwords.list')");

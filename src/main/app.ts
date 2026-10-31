@@ -27,7 +27,7 @@ import { hardenSession } from './privacy';
 import { HistoryRecorder } from './recorder';
 import { SITES_SCHEMA, SiteService } from './sites';
 import { EncryptedStore } from './store';
-import { TabManager } from './tabs';
+import { Tab, TabManager } from './tabs';
 import { MIN_PASSWORD_LENGTH, Vault } from './vault';
 
 export const CONFIRM_PHRASE = '我明白忘记密码将无法恢复';
@@ -582,6 +582,7 @@ export class BrowserApp {
       const t = tabFor(e);
       if (!t || typeof has !== 'boolean' || t.tab.hasLoginForm === has) return;
       t.tab.hasLoginForm = has;
+      if (has) this.autofill(t.tab, t.origin);
       this.emit();
     });
 
@@ -643,6 +644,24 @@ export class BrowserApp {
     if (originOf(tab.view.webContents.getURL()) !== cred.origin) return;
     tab.view.webContents.send(Ipc.PwFill, { username: cred.username, password: passwords.password(cred.id) });
     passwords.markUsed(cred.id);
+  }
+
+  /**
+   * Fill the most recently used saved login when a login form appears, like
+   * other browsers do. Only on https (or this computer), only once per page,
+   * and the page agent only fills visible, empty fields.
+   */
+  private autofill(tab: Tab, origin: string): void {
+    const passwords = this.services?.passwords;
+    if (!passwords || this.phase !== 'unlocked' || tab.autofilled) return;
+    if (!this.config?.get().autofillPasswords) return;
+    const url = new URL(origin);
+    const local = url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]';
+    if (url.protocol !== 'https:' && !local) return;
+    const [login] = passwords.forOrigin(origin);
+    if (!login) return;
+    tab.autofilled = true;
+    tab.view.webContents.send(Ipc.PwFill, { username: login.username, password: passwords.password(login.id), auto: true });
   }
 
   private fillGenerated(tabId: number): void {

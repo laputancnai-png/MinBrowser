@@ -10,6 +10,7 @@ interface Settings {
     adblockEnabled: boolean;
     adblockUpdatedAt: number | null;
     showBookmarksBar: boolean;
+    autofillPasswords: boolean;
   };
   dataDir: string;
   version: string;
@@ -77,6 +78,7 @@ async function load(): Promise<void> {
     h('h2', { text: '隐私' }),
     h('div', { class: 'card' },
       setting('暂停记录浏览历史', '暂停期间不写入任何浏览记录', toggle(c.recordingPaused, 'recordingPaused')),
+      setting('自动填充密码', '打开登录页时自动填入已保存的账号（仅 https 网站）。关闭后需点击地址栏旁的钥匙按钮填入。', toggle(c.autofillPasswords, 'autofillPasswords')),
       setting('退出时清除 Cookie 和网站数据', '最私密，但每次都需要重新登录网站。缓存总是在退出时清除。', toggle(c.clearCookiesOnExit, 'clearCookiesOnExit')),
       setting('清除 Cookie 和网站数据', '立即退出所有网站的登录', h('button', { class: 'danger', text: '立即清除', on: { click: async () => {
         if (!confirm('清除所有 Cookie 和网站数据？你会退出所有网站的登录。')) return;
