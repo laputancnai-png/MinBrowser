@@ -61,13 +61,13 @@ describe('Chrome import', () => {
   it('reads <DD> descriptions', () => {
     const html = `<DL><p><DT><A HREF="https://a.com/">A</A>
 <DD>第一个 &amp; 描述
-<DT><A HREF="https://b.com/">B</A>
+<DT><A HREF="https://b.com/">B&#x27;s &#39;quoted&#39;</A>
 <DT><H3>F</H3><DD>folder note
 <DL><p><DT><A HREF="https://c.com/">C</A><DD>C 的描述</DL><p></DL>`;
     const r = parseBookmarksHtml(html);
     expect(r.other).toEqual([
       { type: 'link', title: 'A', url: 'https://a.com/', description: '第一个 & 描述' },
-      { type: 'link', title: 'B', url: 'https://b.com/' },
+      { type: 'link', title: "B's 'quoted'", url: 'https://b.com/' },
       { type: 'folder', title: 'F', children: [{ type: 'link', title: 'C', url: 'https://c.com/', description: 'C 的描述' }] },
     ]);
   });

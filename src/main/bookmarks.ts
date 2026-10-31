@@ -111,26 +111,46 @@ export class BookmarkService {
 
   /** Move `id` into `parentId` at `index` (clamped), renumbering siblings. */
   move(id: number, parentId: number, index: number): void {
-    const b = this.get(id);
-    if (!b || b.parent_id === null) return;
+    this.moveMany([id], parentId, index);
+  }
+
+  /**
+   * Move several items into `parentId`, keeping their relative order, so they
+   * land at `index` among the folder's other children. One atomic write.
+   */
+  moveMany(ids: number[], parentId: number, index: number): void {
     this.assertFolder(parentId);
-    if (b.type === 'folder' && (parentId === id || this.descendantIds(id).includes(parentId))) {
-      throw new Error('不能把文件夹移到它自己里面');
+    const moving = [...new Set(ids)].map((id) => this.get(id)).filter((b): b is Bookmark => !!b && b.parent_id !== null);
+    if (moving.length === 0) return;
+    for (const b of moving) {
+      if (b.type === 'folder' && (parentId === b.id || this.descendantIds(b.id).includes(parentId))) {
+        throw new Error('不能把文件夹移到它自己里面');
+      }
     }
-    const siblings = this.children(parentId).filter((s) => s.id !== id);
-    siblings.splice(Math.max(0, Math.min(index, siblings.length)), 0, b);
+    const movingIds = new Set(moving.map((b) => b.id));
+    const siblings = this.children(parentId).filter((s) => !movingIds.has(s.id));
+    siblings.splice(Math.max(0, Math.min(index, siblings.length)), 0, ...moving);
     this.store.batch([
-      { sql: 'UPDATE bookmarks SET parent_id = ? WHERE id = ?', params: [parentId, id] },
+      ...moving.map((b) => ({ sql: 'UPDATE bookmarks SET parent_id = ? WHERE id = ?', params: [parentId, b.id] })),
       ...siblings.map((s, i) => ({ sql: 'UPDATE bookmarks SET position = ? WHERE id = ?', params: [i, s.id] })),
     ]);
   }
 
   /** Remove a bookmark, or a folder with everything in it. Roots can't be removed. */
   remove(id: number): void {
-    const b = this.get(id);
-    if (!b || b.parent_id === null) return;
-    const ids = [id, ...this.descendantIds(id)];
-    this.store.batch(ids.map((i) => ({ sql: 'DELETE FROM bookmarks WHERE id = ?', params: [i] })));
+    this.removeMany([id]);
+  }
+
+  /** Remove several items (folders with their contents) in one atomic write. */
+  removeMany(ids: number[]): void {
+    const all = new Set<number>();
+    for (const id of ids) {
+      const b = this.get(id);
+      if (!b || b.parent_id === null) continue;
+      all.add(id);
+      for (const d of this.descendantIds(id)) all.add(d);
+    }
+    this.store.batch([...all].map((i) => ({ sql: 'DELETE FROM bookmarks WHERE id = ?', params: [i] })));
   }
 
   removeUrl(url: string): void {

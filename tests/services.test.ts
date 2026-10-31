@@ -145,3 +145,40 @@ describe('bookmark descriptions', () => {
     expect(b.children(OTHER_ID).map((x) => [x.title, x.description])).toEqual([['A', '描述 A'], ['B', '描述 B']]);
   });
 });
+
+describe('moving and removing several bookmarks', () => {
+  it('moves a selection keeping its order, at the given index', () => {
+    const b = new BookmarkService(store(BOOKMARKS_SCHEMA));
+    const [a, c, d, e] = ['a', 'c', 'd', 'e'].map((t) => b.addLink(BAR_ID, t, `https://${t}.com/`));
+    const f = b.addFolder(OTHER_ID, 'F');
+    const x = b.addLink(f, 'x', 'https://x.com/');
+    b.moveMany([e, a], f, 0); // order follows the list given
+    expect(b.children(f).map((n) => n.title)).toEqual(['e', 'a', 'x']);
+    expect(b.children(BAR_ID).map((n) => n.title)).toEqual(['c', 'd']);
+    b.moveMany([c], BAR_ID, 5); // past the end clamps
+    expect(b.children(BAR_ID).map((n) => n.title)).toEqual(['d', 'c']);
+    b.moveMany([x, d], f, 1);
+    expect(b.children(f).map((n) => n.title)).toEqual(['e', 'x', 'd', 'a']);
+  });
+
+  it('refuses to move a folder into itself or a descendant, changing nothing', () => {
+    const b = new BookmarkService(store(BOOKMARKS_SCHEMA));
+    const outer = b.addFolder(BAR_ID, 'outer');
+    const inner = b.addFolder(outer, 'inner');
+    const link = b.addLink(BAR_ID, 'l', 'https://l.com/');
+    expect(() => b.moveMany([link, outer], inner, 0)).toThrow();
+    expect(b.get(link)!.parent_id).toBe(BAR_ID);
+  });
+
+  it('removes a selection including folder contents, but never roots', () => {
+    const b = new BookmarkService(store(BOOKMARKS_SCHEMA));
+    const f = b.addFolder(BAR_ID, 'f');
+    const inside = b.addLink(f, 'in', 'https://in.com/');
+    const out = b.addLink(BAR_ID, 'out', 'https://out.com/');
+    const keep = b.addLink(BAR_ID, 'keep', 'https://keep.com/');
+    b.removeMany([f, out, BAR_ID]);
+    expect(b.get(inside)).toBeUndefined();
+    expect(b.children(BAR_ID).map((n) => n.id)).toEqual([keep]);
+    expect(b.get(BAR_ID)).toBeDefined();
+  });
+});

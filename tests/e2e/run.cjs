@@ -215,6 +215,25 @@ async function firstRun() {
   await wait(300);
   check('imported links on the bookmarks bar', (await ui.textContent('#bookmarks-bar')).includes('Chrome Bar Link'));
 
+  // Drag and drop in the bookmark manager, with a real pointer drag.
+  await inTab('min://bookmarks', 'location.reload()');
+  await wait(1200);
+  const bm = app.windows().find((p) => p.url().startsWith('min://bookmarks'));
+  const barTitles = () => bm.$$eval('.item .title', (e) => e.map((x) => x.textContent));
+  const startOrder = await barTitles();
+  check('manager lists the bookmarks bar', startOrder.join('|') === 'Tracked Page 隐私测试|Chrome Bar Link|Dev', startOrder.join('|'));
+  const firstBox = await (await bm.$('.item >> nth=0')).boundingBox();
+  await bm.dragAndDrop('.item:has-text("Chrome Bar Link")', '.item >> nth=0', { targetPosition: { x: firstBox.width / 2, y: 4 } });
+  await wait(800);
+  const reordered = (await barTitles()).join('|');
+  check('dragging reorders bookmarks', reordered === 'Chrome Bar Link|Tracked Page 隐私测试|Dev', reordered);
+  check('bookmarks bar follows the new order', (await ui.$$eval('.bar-item', (b) => b.map((x) => x.textContent)))[0] === 'Chrome Bar Link');
+  await bm.dragAndDrop('.item:has-text("Tracked Page")', '.tnode-row:has-text("其他收藏")', { targetPosition: { x: 80, y: 15 } });
+  await wait(800);
+  check('dragging onto a folder in the tree moves it', !(await barTitles()).some((t) => t.startsWith('Tracked Page')));
+  const other = await inTab('min://bookmarks', "window.min.call('bookmarks.tree')");
+  check('moved bookmark is saved in its new folder', other[1].children.some((c) => c.title.startsWith('Tracked Page')));
+
   await cmd('openPage', 'history');
   await wait(1500);
   const visits = await inTab('min://history', "window.min.call('history.search', {})");

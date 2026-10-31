@@ -106,6 +106,16 @@ export function registerInternalApi(app: BrowserApp): void {
       svc().bookmarks.move(int(id), int(parent), int(index));
       app.emit();
     },
+    'bookmarks.moveMany': (ids, parent, index) => {
+      if (!Array.isArray(ids) || ids.length > 5000) throw new Error('bad argument');
+      svc().bookmarks.moveMany(ids.map(int), int(parent), int(index));
+      app.emit();
+    },
+    'bookmarks.removeMany': (ids) => {
+      if (!Array.isArray(ids) || ids.length > 5000) throw new Error('bad argument');
+      svc().bookmarks.removeMany(ids.map(int));
+      app.emit();
+    },
     'bookmarks.remove': (id) => {
       svc().bookmarks.remove(int(id));
       app.emit();
