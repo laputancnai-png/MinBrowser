@@ -142,6 +142,7 @@ adblock_allow(site, created_at)
 
 ## 9. 已知取舍
 
+- 不能登录 Google 账号：Google 禁止基于 Electron 等嵌入式框架的浏览器登录（提示“This browser or app may not be secure”）。决定不做伪装绕过，Google 服务改用系统浏览器
 - 下载列表只保存在内存里，不写入磁盘（下载过什么本身就是隐私）
 - 广告拦截只做网络层拦截，不做隐藏页面元素（cosmetic filtering）
 - 首次下载完整拦截规则之前，使用内置的约 30 条常见追踪域名规则
