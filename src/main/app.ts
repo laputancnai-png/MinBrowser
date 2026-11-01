@@ -777,12 +777,22 @@ export class BrowserApp {
       if (passwords.isNeverSave(t.origin)) return;
       // Password-only step: the username was entered on the step before.
       if (!username) username = this.recentUsername(t.tab, t.origin) ?? '';
-      const existing = passwords.find(t.origin, username);
+      const logins = passwords.forOrigin(t.origin);
+      const existing = logins.find((l) => BrowserApp.sameUser(l.username, username));
       if (existing && passwords.password(existing.id) === password) {
         passwords.markUsed(existing.id);
         return;
       }
-      this.pendingSave = { tabId: t.tab.id, origin: t.origin, username, password, update: !!existing };
+      // The same password saved earlier without a username: it's this login, so
+      // just give it its username instead of asking to save a second copy.
+      const unnamed = username && !existing ? logins.find((l) => !l.username && passwords.password(l.id) === password) : undefined;
+      if (unnamed) {
+        passwords.update(unnamed.id, { username });
+        passwords.markUsed(unnamed.id);
+        return;
+      }
+      // Updating keeps the username as it was saved (it may differ in case from what was typed).
+      this.pendingSave = { tabId: t.tab.id, origin: t.origin, username: existing?.username ?? username, password, update: !!existing };
       this.emit();
     });
   }
@@ -829,6 +839,11 @@ export class BrowserApp {
     passwords.markUsed(cred.id);
   }
 
+  /** Usernames are compared like most sites do: ignoring case and surrounding spaces. */
+  private static sameUser(a: string, b: string): boolean {
+    return a.trim().toLowerCase() === b.trim().toLowerCase();
+  }
+
   /** The username typed on a previous login step of this site in this tab, if recent. */
   private recentUsername(tab: Tab, origin: string): string | null {
     const p = tab.pendingUsername;
@@ -854,13 +869,19 @@ export class BrowserApp {
     if (logins.length === 0) return;
     tab.autofilled.add(step);
     if (step === 'username') {
-      tab.view.webContents.send(Ipc.PwFill, { username: logins[0].username, auto: true });
+      const named = logins.find((l) => l.username);
+      if (named) tab.view.webContents.send(Ipc.PwFill, { username: named.username, auto: true });
       return;
     }
     // A username typed on the step before decides the login. If nothing is saved
-    // for that username, fill nothing rather than someone else's password.
+    // for that username, fill nothing rather than someone else's password, except
+    // a single login saved without a username (older saves of multi-step logins).
     const typed = this.recentUsername(tab, origin);
-    const login = typed !== null ? logins.find((l) => l.username === typed) : logins[0];
+    const unnamed = logins.filter((l) => !l.username);
+    const login =
+      typed === null
+        ? logins[0]
+        : (logins.find((l) => BrowserApp.sameUser(l.username, typed)) ?? (unnamed.length === 1 ? unnamed[0] : undefined));
     if (!login) return;
     tab.view.webContents.send(Ipc.PwFill, { username: login.username, password: passwords.password(login.id), auto: true });
   }

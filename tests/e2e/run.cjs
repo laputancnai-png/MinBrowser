@@ -47,6 +47,7 @@ function startServer() {
       return html(page('Login Page', '<form method="post" action="/welcome"><input name="user" autocomplete="username" id="u"><input type="password" name="pw" id="p"><button id="go">Sign in</button></form>'));
     if (url.pathname === '/login2') return html(page('Two Step Login', '<form action="/login2/pw" method="get"><input type="email" name="email" id="e" autocomplete="username" placeholder="邮箱"><button id="next">下一步</button></form>'));
     if (url.pathname === '/login2/pw') return html(page('Two Step Password', `<p>账号：${(url.searchParams.get('email') || '').replace(/[<>&"]/g, '')}</p><form method="post" action="/welcome"><input type="password" id="p" autocomplete="current-password"><button id="go">登录</button></form>`));
+    if (url.pathname === '/login4') return html(page('Aeries Style', '<form method="post" action="/welcome"><input type="text" id="portalAccountUsername" name="portalAccountUsername" placeholder="Email Address"><a href="#" id="next" onclick="document.getElementById(&quot;pwSection&quot;).style.display=&quot;block&quot;;this.style.display=&quot;none&quot;;return false">Next</a><div id="pwSection" style="display:none"><input type="password" id="portalAccountPassword" name="portalAccountPassword"><button id="LoginButton">Sign In</button></div></form>'));
     if (url.pathname === '/login3') return html(page('One Page Steps', '<div><input type="text" id="u" placeholder="Email or phone"><button id="next" type="button">Next</button></div><div id="step2" style="display:none"><input type="password" id="p" readonly><button id="go" type="button">Sign in</button></div><script>next.onclick=()=>{step2.style.display="block"};p.onfocus=()=>p.removeAttribute("readonly");go.onclick=()=>{location.href="/welcome"}</script>'));
     if (url.pathname === '/welcome') {
       req.resume();
@@ -507,6 +508,11 @@ async function multiStepLogin() {
   await inTab('/login3', "u.value = 'dora@example.com'; next.click()");
   await wait(1500);
   check('one-page steps: read-only password field filled after Next', (await val('/login3', 'p')) === 'dora-pass', await val('/login3', 'p'));
+  // "Next" is a link (as on Aeries), and the email is typed in different case.
+  await go(`${SITE}/login4`, 1500);
+  await inTab('/login4', "{ const f = document.getElementById('portalAccountUsername'); f.value = 'DORA@Example.com'; f.dispatchEvent(new Event('change', { bubbles: true })); document.getElementById('next').click(); 1 }");
+  await wait(1500);
+  check('link-style Next and different case still fill the password', (await val('/login4', 'portalAccountPassword')) === 'dora-pass', await val('/login4', 'portalAccountPassword'));
   await app.close();
 }
 

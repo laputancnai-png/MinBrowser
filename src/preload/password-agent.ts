@@ -127,11 +127,23 @@ export function startPasswordAgent(): void {
   };
 
   document.addEventListener('submit', (e) => capture(e.target), true);
+  // "Next" isn't always a real button (links, divs with click handlers), so also
+  // take the username as soon as the field is left with a value in it.
+  document.addEventListener(
+    'change',
+    (e) => {
+      const user = usernameOnlyField();
+      if (user && e.target === user && user.value.trim() && once(`u\u0000${user.value.trim()}`)) {
+        ipcRenderer.send(Ipc.PwUsername, user.value.trim());
+      }
+    },
+    true,
+  );
   document.addEventListener(
     'click',
     (e) => {
       const target = e.target instanceof Element ? e.target : null;
-      const button = target?.closest('button, input[type=submit], input[type=button], [role=button]');
+      const button = target?.closest('button, input[type=submit], input[type=button], [role=button], a');
       if (button && !button.closest('[aria-label*="password" i], [aria-label*="密码"]')) capture(button);
     },
     true,
