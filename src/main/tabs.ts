@@ -1,6 +1,6 @@
 import { BrowserWindow, Session, WebContents, WebContentsView } from 'electron';
 import { join } from 'node:path';
-import { Ipc } from '../shared/ipc';
+import { Ipc, LoginStep } from '../shared/ipc';
 import { NEW_TAB_URL, displayUrl, isInternalUrl, resolveInput } from '../shared/url';
 import type { Transition } from './history';
 
@@ -20,8 +20,12 @@ export interface Tab {
   lastUrl: string;
   blocked: number;
   hasLoginForm: boolean;
-  /** A saved login was already filled automatically on this page. */
-  autofilled: boolean;
+  /** Which login step this page shows, as reported by the page agent. */
+  loginStep: LoginStep;
+  /** Steps already filled automatically on this page (each is filled once). */
+  autofilled: Set<'username' | 'password'>;
+  /** Username entered on the first step of a multi-step login, for the next step. */
+  pendingUsername: { site: string; username: string; at: number } | null;
   /** A restored tab that hasn't been looked at yet: loads when first activated. */
   deferred: { url: string; title: string } | null;
 }
@@ -95,7 +99,9 @@ export class TabManager {
       lastUrl: '',
       blocked: 0,
       hasLoginForm: false,
-      autofilled: false,
+      loginStep: null,
+      autofilled: new Set(),
+      pendingUsername: null,
       deferred: null,
     };
     this.tabs.set(id, tab);
@@ -378,7 +384,8 @@ export class TabManager {
         tab.blocked = 0;
         // Same race for the login form report from the new page.
         tab.hasLoginForm = false;
-        tab.autofilled = false;
+        tab.loginStep = null;
+        tab.autofilled.clear();
       }
     });
     wc.on('did-navigate', (_e, url) => {
@@ -396,7 +403,7 @@ export class TabManager {
       // Single-page apps change the path with pushState; a #fragment alone is not a new page.
       if (stripHash(url) !== tab.lastUrl) {
         tab.lastUrl = stripHash(url);
-        tab.autofilled = false;
+        tab.autofilled.clear();
         this.hooks.navigated(tab, url, tab.pendingTransition ?? 'link');
       }
       tab.pendingTransition = null;

@@ -14,6 +14,8 @@ export const Ipc = {
   /** Tab password agent <-> main */
   PwForms: 'pw:forms',
   PwSubmit: 'pw:submit',
+  /** First step of a multi-step login: the username that was entered. */
+  PwUsername: 'pw:username',
   PwFill: 'pw:fill',
   PwFillNew: 'pw:fill-new',
 } as const;
@@ -94,3 +96,6 @@ export interface PopupData {
   bookmark: { id: number; title: string; url: string; description: string; parentId: number };
   folders: { id: number; title: string; depth: number }[];
 }
+
+/** What login step a page shows: both fields / password only, username only, or none. */
+export type LoginStep = 'password' | 'username' | null;

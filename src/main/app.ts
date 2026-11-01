@@ -749,22 +749,34 @@ export class BrowserApp {
       return tab && origin ? { tab, origin } : null;
     };
 
-    ipcMain.on(Ipc.PwForms, (e, has: unknown) => {
+    ipcMain.on(Ipc.PwForms, (e, step: unknown) => {
       const t = tabFor(e);
-      if (!t || typeof has !== 'boolean' || t.tab.hasLoginForm === has) return;
-      t.tab.hasLoginForm = has;
-      if (has) this.autofill(t.tab, t.origin);
+      if (!t || (step !== 'password' && step !== 'username' && step !== null) || t.tab.loginStep === step) return;
+      t.tab.loginStep = step;
+      t.tab.hasLoginForm = step !== null;
+      if (step) this.autofill(t.tab, t.origin, step);
       this.emit();
+    });
+
+    // First step of a multi-step login: keep the username for the password step.
+    ipcMain.on(Ipc.PwUsername, (e, username: unknown) => {
+      const t = tabFor(e);
+      const site = t && siteOf(t.origin);
+      if (!t || !site || typeof username !== 'string' || !username || username.length > 512) return;
+      t.tab.pendingUsername = { site, username, at: Date.now() };
     });
 
     ipcMain.on(Ipc.PwSubmit, (e, data: unknown) => {
       const t = tabFor(e);
       const passwords = this.services?.passwords;
       if (!t || !passwords || this.phase !== 'unlocked') return;
-      const { username, password } = (data ?? {}) as { username?: unknown; password?: unknown };
-      if (typeof username !== 'string' || typeof password !== 'string') return;
+      const { username: u, password } = (data ?? {}) as { username?: unknown; password?: unknown };
+      if (typeof u !== 'string' || typeof password !== 'string') return;
+      let username = u;
       if (!password || password.length > 1024 || username.length > 512) return;
       if (passwords.isNeverSave(t.origin)) return;
+      // Password-only step: the username was entered on the step before.
+      if (!username) username = this.recentUsername(t.tab, t.origin) ?? '';
       const existing = passwords.find(t.origin, username);
       if (existing && passwords.password(existing.id) === password) {
         passwords.markUsed(existing.id);
@@ -817,21 +829,39 @@ export class BrowserApp {
     passwords.markUsed(cred.id);
   }
 
+  /** The username typed on a previous login step of this site in this tab, if recent. */
+  private recentUsername(tab: Tab, origin: string): string | null {
+    const p = tab.pendingUsername;
+    if (!p || p.site !== siteOf(origin) || Date.now() - p.at > 15 * 60_000) return null;
+    return p.username;
+  }
+
   /**
-   * Fill the most recently used saved login when a login form appears, like
-   * other browsers do. Only on https (or this computer), only once per page,
-   * and the page agent only fills visible, empty fields.
+   * Fill a saved login when a login form appears, like other browsers do.
+   * Username step: only the username of the most recently used login.
+   * Password step: the login whose username was entered on the step before,
+   * otherwise the most recently used one. Only on https (or this computer),
+   * each step once per page, and the page agent only fills empty fields.
    */
-  private autofill(tab: Tab, origin: string): void {
+  private autofill(tab: Tab, origin: string, step: 'password' | 'username'): void {
     const passwords = this.services?.passwords;
-    if (!passwords || this.phase !== 'unlocked' || tab.autofilled) return;
+    if (!passwords || this.phase !== 'unlocked' || tab.autofilled.has(step)) return;
     if (!this.config?.get().autofillPasswords) return;
     const url = new URL(origin);
     const local = url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]';
     if (url.protocol !== 'https:' && !local) return;
-    const [login] = passwords.forOrigin(origin);
+    const logins = passwords.forOrigin(origin);
+    if (logins.length === 0) return;
+    tab.autofilled.add(step);
+    if (step === 'username') {
+      tab.view.webContents.send(Ipc.PwFill, { username: logins[0].username, auto: true });
+      return;
+    }
+    // A username typed on the step before decides the login. If nothing is saved
+    // for that username, fill nothing rather than someone else's password.
+    const typed = this.recentUsername(tab, origin);
+    const login = typed !== null ? logins.find((l) => l.username === typed) : logins[0];
     if (!login) return;
-    tab.autofilled = true;
     tab.view.webContents.send(Ipc.PwFill, { username: login.username, password: passwords.password(login.id), auto: true });
   }
 

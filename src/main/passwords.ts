@@ -69,15 +69,17 @@ export class PasswordService {
   save(origin: string, username: string, password: string, at = Date.now()): number {
     const enc = this.encrypt(origin, username, password);
     const existing = this.find(origin, username);
+    // Saving a login means it was just used: it becomes the one filled first.
     if (existing) {
-      this.store.run('UPDATE credentials SET password_enc = ?, updated_at = ? WHERE id = ?', enc, at, existing.id);
+      this.store.run('UPDATE credentials SET password_enc = ?, updated_at = ?, last_used_at = ? WHERE id = ?', enc, at, at, existing.id);
       return existing.id;
     }
     return this.store.run(
-      'INSERT INTO credentials (origin, username, password_enc, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+      'INSERT INTO credentials (origin, username, password_enc, created_at, updated_at, last_used_at) VALUES (?, ?, ?, ?, ?, ?)',
       origin,
       username,
       enc,
+      at,
       at,
       at,
     ).lastInsertRowid;

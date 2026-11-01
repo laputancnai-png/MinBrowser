@@ -45,6 +45,9 @@ function startServer() {
     };
     if (url.pathname === '/login')
       return html(page('Login Page', '<form method="post" action="/welcome"><input name="user" autocomplete="username" id="u"><input type="password" name="pw" id="p"><button id="go">Sign in</button></form>'));
+    if (url.pathname === '/login2') return html(page('Two Step Login', '<form action="/login2/pw" method="get"><input type="email" name="email" id="e" autocomplete="username" placeholder="邮箱"><button id="next">下一步</button></form>'));
+    if (url.pathname === '/login2/pw') return html(page('Two Step Password', `<p>账号：${(url.searchParams.get('email') || '').replace(/[<>&"]/g, '')}</p><form method="post" action="/welcome"><input type="password" id="p" autocomplete="current-password"><button id="go">登录</button></form>`));
+    if (url.pathname === '/login3') return html(page('One Page Steps', '<div><input type="text" id="u" placeholder="Email or phone"><button id="next" type="button">Next</button></div><div id="step2" style="display:none"><input type="password" id="p" readonly><button id="go" type="button">Sign in</button></div><script>next.onclick=()=>{step2.style.display="block"};p.onfocus=()=>p.removeAttribute("readonly");go.onclick=()=>{location.href="/welcome"}</script>'));
     if (url.pathname === '/welcome') {
       req.resume();
       return req.on('end', () => html(page('Welcome', '<h1>Welcome</h1>')));
@@ -480,6 +483,33 @@ async function bookmarkBubble() {
   await app.close();
 }
 
+async function multiStepLogin() {
+  const { app, ui, go, inTab } = await launch();
+  await unlockWith(ui, PW2);
+  const val = (part, id) => inTab(part, `document.getElementById('${id}').value`);
+  // Username on one page, password on the next: saved as one login.
+  await go(`${SITE}/login2`, 1500);
+  await inTab('/login2', "e.value = 'dora@example.com'; next.click()");
+  await wait(1500);
+  await inTab('/login2/pw', "p.value = 'dora-pass'; go.click()");
+  await wait(1200);
+  check('two-step login: save prompt includes the username', (await ui.textContent('#infobar-text')).includes('dora@example.com'));
+  await ui.click('#pw-save');
+  await wait(300);
+  // Next time both steps are filled in.
+  await go(`${SITE}/login2`, 1800);
+  check('two-step login: username step filled', (await val('/login2', 'e')) === 'dora@example.com', await val('/login2', 'e'));
+  await inTab('/login2', 'next.click()');
+  await wait(1800);
+  check('two-step login: password step filled', (await val('/login2/pw', 'p')) === 'dora-pass');
+  // Password appears later on the same page, read-only until focused.
+  await go(`${SITE}/login3`, 1500);
+  await inTab('/login3', "u.value = 'dora@example.com'; next.click()");
+  await wait(1500);
+  check('one-page steps: read-only password field filled after Next', (await val('/login3', 'p')) === 'dora-pass', await val('/login3', 'p'));
+  await app.close();
+}
+
 (async () => {
   fs.mkdirSync(DATA, { recursive: true });
   fakeChromeProfile();
@@ -490,6 +520,7 @@ async function bookmarkBubble() {
     await crashRecovery();
     await tabReorder();
     await bookmarkBubble();
+    await multiStepLogin();
   } finally {
     server.close();
     fs.rmSync(TMP, { recursive: true, force: true });

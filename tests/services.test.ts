@@ -95,6 +95,11 @@ describe('PasswordService', () => {
     expect(() => p.password(other)).toThrow();
     p.update(id, { username: 'me2' });
     expect(p.password(id)).toBe('pw2');
+    // The login saved most recently is offered first.
+    p.markUsed(id, Date.now() + 1000);
+    const newer = p.save('https://a.com', 'second', 'pw', Date.now() + 2000);
+    expect(p.forOrigin('https://a.com')[0].id).toBe(newer);
+    p.remove(newer);
     p.setNeverSave('https://x.com', true);
     expect(p.isNeverSave('https://x.com')).toBe(true);
     p.remove(id);
