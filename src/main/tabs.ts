@@ -112,6 +112,8 @@ export class TabManager {
       },
     });
     view.setBackgroundColor('#ffffff');
+    // WebRTC would otherwise tell any page this computer's local network addresses.
+    view.webContents.setWebRTCIPHandlingPolicy('default_public_interface_only');
     const tab: Tab = {
       id,
       view,
@@ -605,6 +607,10 @@ export class TabManager {
     });
     wc.on('will-redirect', (event, url) => {
       if (isInternalUrl(url)) event.preventDefault();
+    });
+    // Internal pages are never loaded inside frames (a web page can't embed them).
+    wc.on('will-frame-navigate', (event) => {
+      if (!event.isMainFrame && isInternalUrl(event.url)) event.preventDefault();
     });
   }
 

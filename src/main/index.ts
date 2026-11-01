@@ -36,6 +36,13 @@ if (!app.requestSingleInstanceLock()) {
     browser.start();
   });
 
+  // Defence in depth for any web contents, including ones we didn't create ourselves:
+  // no <webview>, no popups unless a more specific handler (set later) allows them.
+  app.on('web-contents-created', (_e, contents) => {
+    contents.on('will-attach-webview', (ev) => ev.preventDefault());
+    contents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  });
+
   // Quit when the window closes, on every platform: nothing should linger with data unlocked.
   app.on('window-all-closed', () => app.quit());
 

@@ -1,26 +1,73 @@
-import { net, protocol, Session } from 'electron';
-import { join, normalize, sep } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { protocol, Session } from 'electron';
+import { readFile } from 'node:fs/promises';
+import { extname, join, normalize, sep } from 'node:path';
 
-/** Internal pages live at min://<page>/<file> and are served from dist/pages/<page>/. */
-const PAGES_DIR = join(__dirname, '..', 'pages');
+/**
+ * The browser's own pages are served over private schemes instead of file://
+ * (file:// pages get extra privileges, and packaged builds switch those off):
+ *
+ *   app://ui/<file>     the browser UI, bookmark bubble, split layers
+ *                       (default session only, so web pages can't load them)
+ *   min://<page>/<file> internal pages shown in tabs (history, passwords, ...)
+ *
+ * Files are read with fs, which also works inside the packaged app.asar.
+ */
+const DIST = join(__dirname, '..');
+const RENDERER_DIR = join(DIST, 'renderer');
+const PAGES_DIR = join(DIST, 'pages');
+
+const TYPES: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.png': 'image/png',
+  '.svg': 'image/svg+xml',
+  '.json': 'application/json',
+  '.map': 'application/json',
+};
 
 /** Must run before app "ready". */
 export function registerInternalScheme(): void {
   protocol.registerSchemesAsPrivileged([
     { scheme: 'min', privileges: { standard: true, secure: true, supportFetchAPI: true } },
+    { scheme: 'app', privileges: { standard: true, secure: true, supportFetchAPI: true } },
   ]);
 }
 
+export const UI_URL = 'app://ui/';
+
+/** Resolve `pathname` inside `root`, refusing anything that escapes it. */
+async function serveFile(root: string, pathname: string): Promise<Response> {
+  let file: string;
+  try {
+    file = pathname === '/' || pathname === '' ? 'index.html' : decodeURIComponent(pathname.slice(1));
+  } catch {
+    return new Response('Bad request', { status: 400 });
+  }
+  const path = normalize(join(root, file));
+  if (!path.startsWith(root + sep)) return new Response('Not found', { status: 404 });
+  try {
+    const body = await readFile(path);
+    return new Response(body, { headers: { 'content-type': TYPES[extname(path)] ?? 'application/octet-stream' } });
+  } catch {
+    return new Response('Not found', { status: 404 });
+  }
+}
+
+/** Internal pages for tabs, in the web session. */
 export function serveInternalPages(session: Session): void {
   session.protocol.handle('min', (request) => {
     const url = new URL(request.url);
-    const file = url.pathname === '/' ? 'index.html' : decodeURIComponent(url.pathname.slice(1));
-    const root = join(PAGES_DIR, url.hostname);
-    const path = normalize(join(root, file));
-    if (!url.hostname || !path.startsWith(root + sep)) {
-      return new Response('Not found', { status: 404 });
-    }
-    return net.fetch(pathToFileURL(path).href);
+    if (!url.hostname) return new Response('Not found', { status: 404 });
+    return serveFile(join(PAGES_DIR, url.hostname), url.pathname);
+  });
+}
+
+/** The browser's own UI, in the default session (which never loads web content). */
+export function serveBrowserUi(session: Session): void {
+  session.protocol.handle('app', (request) => {
+    const url = new URL(request.url);
+    if (url.hostname !== 'ui') return new Response('Not found', { status: 404 });
+    return serveFile(RENDERER_DIR, url.pathname);
   });
 }

@@ -10,7 +10,7 @@ import {
   session,
   Session,
 } from 'electron';
-import { accessSync, constants, existsSync, mkdirSync, statSync } from 'node:fs';
+import { accessSync, chmodSync, constants, existsSync, mkdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { BarItem, CommandResult, Ipc, Phase, PopupData, Rect, SavePrompt, SetupDirResult, TabState, UiState } from '../shared/ipc';
 import { generatePassword } from '../shared/password';
@@ -24,7 +24,7 @@ import { BAR_ID, BOOKMARKS_SCHEMA, BookmarkNode, BookmarkService } from './bookm
 import { ConfigStore, location } from './config';
 import { DownloadManager } from './downloads';
 import { HISTORY_SCHEMA, HistoryService } from './history';
-import { serveInternalPages } from './pages';
+import { serveBrowserUi, serveInternalPages, UI_URL } from './pages';
 import { PASSWORDS_SCHEMA, PasswordService } from './passwords';
 import { hardenSession } from './privacy';
 import { HistoryRecorder } from './recorder';
@@ -96,6 +96,7 @@ export class BrowserApp {
   start(): void {
     // The UI renderer never loads remote content and needs no permissions.
     session.defaultSession.setPermissionRequestHandler((_wc, _p, cb) => cb(false));
+    serveBrowserUi(session.defaultSession);
     ipcMain.handle(Ipc.Command, async (e, name: unknown, ...args: unknown[]): Promise<CommandResult> => {
       if (!this.win || e.sender !== this.win.webContents || typeof name !== 'string') {
         return { ok: false, error: 'forbidden' };
@@ -157,7 +158,7 @@ export class BrowserApp {
     win.on('closed', () => {
       this.win = null;
     });
-    win.loadFile(join(__dirname, '..', 'renderer', 'index.html'));
+    win.loadURL(`${UI_URL}index.html`);
   }
 
   // ---------------------------------------------------------------- state
@@ -440,13 +441,18 @@ export class BrowserApp {
   /** First unlock of this run: create the web session inside the data folder and open a tab. */
   private startBrowsing(dir: string): void {
     const chromiumDir = join(dir, 'chromium');
-    mkdirSync(chromiumDir, { recursive: true });
+    // Cookies and site data live here: readable by this user only.
+    mkdirSync(chromiumDir, { recursive: true, mode: 0o700 });
+    chmodSync(chromiumDir, 0o700);
     const web = session.fromPath(chromiumDir);
     this.web = web;
     this.adblock = new AdBlocker(join(dir, 'adblock.bin'));
-    hardenSession(web, () => this.win, {
-      shouldBlock: (url, type, pageUrl, wcId) => this.shouldBlock(url, type, pageUrl, wcId),
-    });
+    hardenSession(
+      web,
+      () => this.win,
+      { shouldBlock: (url, type, pageUrl, wcId) => this.shouldBlock(url, type, pageUrl, wcId) },
+      () => this.phase !== 'unlocked',
+    );
     serveInternalPages(web);
     this.downloads = new DownloadManager(
       web,
@@ -1011,6 +1017,8 @@ export class BrowserApp {
   private autofill(tab: Tab, origin: string, step: 'password' | 'username'): void {
     const passwords = this.services?.passwords;
     if (!passwords || this.phase !== 'unlocked' || tab.autofilled.has(step)) return;
+    // The report came from a page on `origin`; only fill if that is still what the tab shows.
+    if (originOf(tab.view.webContents.getURL()) !== origin) return;
     if (!this.config?.get().autofillPasswords) return;
     const url = new URL(origin);
     const local = url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]';

@@ -1,6 +1,7 @@
 import { BrowserWindow, WebContents, WebContentsView } from 'electron';
 import { join } from 'node:path';
 import type { Rect } from '../shared/ipc';
+import { UI_URL } from './pages';
 
 /** Card plus room on each side for its shadow (see bookmark-popup.css). */
 const WIDTH = 404;
@@ -50,7 +51,7 @@ export class BookmarkPopup {
     wc.on('blur', () => {
       if (this.view === view) this.close();
     });
-    wc.loadFile(join(__dirname, '..', 'renderer', 'bookmark-popup.html'));
+    wc.loadURL(`${UI_URL}bookmark-popup.html`);
   }
 
   /** Shrink the view to the card's real height, so it doesn't cover the page below it. */

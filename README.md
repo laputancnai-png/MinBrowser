@@ -2,7 +2,9 @@
 
 一个注重隐私的个人浏览器：不收集任何数据，浏览记录、收藏夹、密码都加密保存在你自己指定的本地文件夹。
 
-完整方案见 [docs/DESIGN.md](docs/DESIGN.md)。
+使用方法见 [用户手册](docs/用户手册.md)；完整方案见 [docs/DESIGN.md](docs/DESIGN.md)；安全审查见 [docs/SECURITY.md](docs/SECURITY.md)。
+
+开发：`npm install` 会自动运行 `scripts/dev-fuses.mjs`，给开发用的 Electron 打开 Cookie 加密。
 
 ## 版本
 

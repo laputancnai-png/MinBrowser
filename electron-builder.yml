@@ -19,6 +19,7 @@ electronFuses:
   enableNodeCliInspectArguments: false
   enableEmbeddedAsarIntegrityValidation: true
   onlyLoadAppFromAsar: true
+  grantFileProtocolExtraPrivileges: false
 
 mac:
   target:

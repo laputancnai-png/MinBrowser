@@ -2,6 +2,7 @@ import { BrowserWindow, WebContents, WebContentsView } from 'electron';
 import { join } from 'node:path';
 import { Ipc, Rect } from '../shared/ipc';
 import type { Orientation } from '../shared/split';
+import { UI_URL } from './pages';
 
 /**
  * A transparent layer over the page area, shown only while the split divider
@@ -45,7 +46,7 @@ export class SplitShield {
     wc.on('render-process-gone', () => {
       if (this.view === view) this.view = null;
     });
-    wc.loadFile(join(__dirname, '..', 'renderer', 'split-shield.html'));
+    wc.loadURL(`${UI_URL}split-shield.html`);
     this.view = view;
     return view;
   }

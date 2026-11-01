@@ -1,7 +1,7 @@
 {
   "name": "minbrowser",
   "productName": "MinBrowser",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "A private browser that keeps your data encrypted on your own disk.",
   "main": "dist/main/index.js",
   "private": true,
@@ -17,9 +17,11 @@
     "test:e2e": "npm run build && node tests/e2e/run.cjs",
     "install-desktop": "sh scripts/install-linux-desktop.sh",
     "version:minor": "node scripts/bump.mjs minor",
-    "version:major": "node scripts/bump.mjs major"
+    "version:major": "node scripts/bump.mjs major",
+    "postinstall": "node scripts/dev-fuses.mjs"
   },
   "devDependencies": {
+    "@electron/fuses": "^1.8.0",
     "@ghostery/adblocker": "^2.20.3",
     "@types/node": "^26.6.6",
     "electron": "^45.2.1",

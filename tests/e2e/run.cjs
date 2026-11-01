@@ -48,6 +48,11 @@ function startServer() {
     if (url.pathname === '/login2') return html(page('Two Step Login', '<form action="/login2/pw" method="get"><input type="email" name="email" id="e" autocomplete="username" placeholder="邮箱"><button id="next">下一步</button></form>'));
     if (url.pathname === '/login2/pw') return html(page('Two Step Password', `<p>账号：${(url.searchParams.get('email') || '').replace(/[<>&"]/g, '')}</p><form method="post" action="/welcome"><input type="password" id="p" autocomplete="current-password"><button id="go">登录</button></form>`));
     if (url.pathname === '/login4') return html(page('Aeries Style', '<form method="post" action="/welcome"><input type="text" id="portalAccountUsername" name="portalAccountUsername" placeholder="Email Address"><a href="#" id="next" onclick="document.getElementById(&quot;pwSection&quot;).style.display=&quot;block&quot;;this.style.display=&quot;none&quot;;return false">Next</a><div id="pwSection" style="display:none"><input type="password" id="portalAccountPassword" name="portalAccountPassword"><button id="LoginButton">Sign In</button></div></form>'));
+    if (url.pathname === '/embed-internal') return html(page('Embed Internal', '<iframe id="f" src="min://passwords/" width="400" height="300"></iframe><iframe id="g" src="/page/1" width="200" height="100"></iframe>'));
+    if (url.pathname === '/persist') {
+      res.writeHead(200, { 'content-type': 'text/html', 'set-cookie': 'keep=SECRETSESSIONTOKEN; Max-Age=3600; Path=/' });
+      return res.end('<title>Persist</title>ok');
+    }
     if (url.pathname === '/login3') return html(page('One Page Steps', '<div><input type="text" id="u" placeholder="Email or phone"><button id="next" type="button">Next</button></div><div id="step2" style="display:none"><input type="password" id="p" readonly><button id="go" type="button">Sign in</button></div><script>next.onclick=()=>{step2.style.display="block"};p.onfocus=()=>p.removeAttribute("readonly");go.onclick=()=>{location.href="/welcome"}</script>'));
     if (url.pathname === '/welcome') {
       req.resume();
@@ -97,7 +102,7 @@ async function launch() {
   // The browser UI page (other views, like the split-view layers, are pages too).
   let ui = null;
   for (let i = 0; i < 100 && !ui; i++) {
-    ui = app.windows().find((w) => w.url().endsWith('renderer/index.html')) ?? null;
+    ui = app.windows().find((w) => w.url() === 'app://ui/index.html') ?? null;
     if (!ui) await new Promise((r) => setTimeout(r, 100));
   }
   if (!ui) throw new Error('browser UI page not found');
@@ -569,6 +574,26 @@ async function splitView() {
   await app.close();
 }
 
+async function securityChecks() {
+  const { app, ui, go } = await launch();
+  await unlockWith(ui, PW2);
+  const chromiumDir = path.join(DATA, 'chromium');
+  check('website data folder is private', (fs.statSync(chromiumDir).mode & 0o777) === 0o700, (fs.statSync(chromiumDir).mode & 0o777).toString(8));
+  await go(`${SITE}/persist`, 1500);
+  const policy = await app.evaluate(({ webContents }) => webContents.getAllWebContents().find((w) => w.getURL().includes('/persist')).getWebRTCIPHandlingPolicy());
+  check('WebRTC does not reveal local network addresses', policy === 'default_public_interface_only', policy);
+  await go(`${SITE}/embed-internal`, 2000);
+  const frames = await app.evaluate(({ webContents }) =>
+    webContents.getAllWebContents().find((w) => w.getURL().includes('/embed-internal')).mainFrame.frames.map((f) => f.url),
+  );
+  check('web pages cannot embed internal pages', !frames.some((u) => u.startsWith('min:')), JSON.stringify(frames));
+  await app.close();
+  await wait(500);
+  // Cookie encryption comes from an Electron fuse (scripts/dev-fuses.mjs for development builds).
+  const cookies = fs.readFileSync(path.join(chromiumDir, 'Cookies'));
+  check('cookies are not stored in plain text', cookies.length > 0 && !cookies.includes('SECRETSESSIONTOKEN'));
+}
+
 (async () => {
   fs.mkdirSync(DATA, { recursive: true });
   fakeChromeProfile();
@@ -581,6 +606,7 @@ async function splitView() {
     await bookmarkBubble();
     await multiStepLogin();
     await splitView();
+    await securityChecks();
   } finally {
     server.close();
     fs.rmSync(TMP, { recursive: true, force: true });

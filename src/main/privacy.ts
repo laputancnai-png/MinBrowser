@@ -36,7 +36,12 @@ export interface RequestBlocker {
   shouldBlock(url: string, resourceType: string, pageUrl: string, webContentsId: number | undefined): boolean;
 }
 
-export function hardenSession(session: Session, getWindow: () => BrowserWindow | null, blocker?: RequestBlocker): void {
+export function hardenSession(
+  session: Session,
+  getWindow: () => BrowserWindow | null,
+  blocker?: RequestBlocker,
+  isLocked: () => boolean = () => false,
+): void {
   session.setUserAgent(cleanUserAgent(session.getUserAgent()));
 
   // Spellcheck dictionaries are downloaded from Google's CDN on Linux; turn it all off.
@@ -45,7 +50,7 @@ export function hardenSession(session: Session, getWindow: () => BrowserWindow |
 
   blockThirdPartyCookies(session);
   if (blocker) blockRequests(session, blocker);
-  handlePermissions(session, getWindow);
+  handlePermissions(session, getWindow, isLocked);
 }
 
 function blockRequests(session: Session, blocker: RequestBlocker): void {
@@ -88,12 +93,14 @@ function blockThirdPartyCookies(session: Session): void {
   });
 }
 
-function handlePermissions(session: Session, getWindow: () => BrowserWindow | null): void {
+function handlePermissions(session: Session, getWindow: () => BrowserWindow | null, isLocked: () => boolean): void {
   // Decisions last until the app quits; nothing about them is written to disk.
   const decisions = new Map<string, boolean>();
   const keyOf = (origin: string, permission: string) => `${origin}|${permission}`;
 
   session.setPermissionRequestHandler(async (wc, permission, callback, details) => {
+    // While locked nothing may prompt (a prompt would show which site is open) or start recording.
+    if (isLocked()) return callback(false);
     if (ALWAYS_ALLOW.has(permission)) return callback(true);
     const what = ASK[permission];
     if (!what) return callback(false);
@@ -124,6 +131,7 @@ function handlePermissions(session: Session, getWindow: () => BrowserWindow | nu
   });
 
   session.setPermissionCheckHandler((_wc, permission, requestingOrigin) => {
+    if (isLocked()) return false;
     if (ALWAYS_ALLOW.has(permission)) return true;
     return decisions.get(keyOf(requestingOrigin, permission)) === true;
   });
