@@ -91,3 +91,12 @@ describe('Chrome import', () => {
     expect(r.other).toEqual([{ type: 'link', title: 'Other', url: 'https://other.com/' }]);
   });
 });
+
+describe('displayVersion', () => {
+  it('shows vMAJOR.MINOR', async () => {
+    const { displayVersion } = await import('../src/shared/version');
+    expect(displayVersion('1.0.0')).toBe('v1.0');
+    expect(displayVersion('1.12.0')).toBe('v1.12');
+    expect(displayVersion('2.0.0')).toBe('v2.0');
+  });
+});

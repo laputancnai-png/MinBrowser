@@ -1,4 +1,5 @@
 import { app, Menu } from 'electron';
+import { displayVersion } from '../shared/version';
 import { BrowserApp } from './app';
 import { registerInternalApi } from './internal-api';
 import { buildMenu } from './menu';
@@ -23,6 +24,12 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(() => {
     hardenApp();
+    app.setAboutPanelOptions({
+      applicationName: 'MinBrowser',
+      applicationVersion: displayVersion(app.getVersion()),
+      version: '',
+      copyright: '私密浏览器 · 数据只保存在你自己的电脑上',
+    });
     browser = new BrowserApp();
     registerInternalApi(browser);
     Menu.setApplicationMenu(buildMenu(browser));

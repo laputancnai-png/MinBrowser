@@ -2,6 +2,7 @@ import { app as electronApp, clipboard, dialog, ipcMain } from 'electron';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { Ipc } from '../shared/ipc';
 import { generatePassword } from '../shared/password';
+import { displayVersion } from '../shared/version';
 import { originOf } from '../shared/url';
 import type { BrowserApp } from './app';
 import { BAR_ID, OTHER_ID } from './bookmarks';
@@ -183,7 +184,7 @@ export function registerInternalApi(app: BrowserApp): void {
     'settings.get': () => ({
       config: cfg().get(),
       dataDir: app.dataDir,
-      version: electronApp.getVersion(),
+      version: displayVersion(electronApp.getVersion()),
       adblock: {
         ...app.adblockStatus,
         builtin: app.adblock?.usingBuiltinRules ?? true,

@@ -4,6 +4,11 @@
 
 完整方案见 [docs/DESIGN.md](docs/DESIGN.md)。
 
+## 版本
+
+当前版本见 [CHANGELOG.md](CHANGELOG.md)，在设置页、新标签页底部和“关于 MinBrowser”里也能看到。
+版本号格式是 vN.N：每次修改升 0.1（`npm run version:minor -- "改了什么"`），大改版升 1.0（`npm run version:major -- "改了什么"`）。
+
 ## 运行
 
 需要 Node.js 20+。

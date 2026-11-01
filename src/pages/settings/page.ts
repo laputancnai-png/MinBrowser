@@ -65,7 +65,7 @@ async function load(): Promise<void> {
 
   main.replaceChildren(
     h('h1', { text: '设置' }),
-    h('p', { class: 'subtitle' }, `MinBrowser ${s.version}`),
+    h('p', { class: 'subtitle' }, `MinBrowser ${s.version}`, ' · ', h('span', { class: 'note', text: '更新记录见项目里的 CHANGELOG.md' })),
 
     h('h2', { text: '数据与安全' }),
     h('div', { class: 'card' },

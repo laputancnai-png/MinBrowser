@@ -1,5 +1,5 @@
 import { build } from 'esbuild';
-import { cpSync, existsSync, readdirSync, rmSync } from 'node:fs';
+import { cpSync, existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 
 rmSync('dist', { recursive: true, force: true });
 
@@ -69,3 +69,9 @@ for (const name of readdirSync('src/pages')) {
   if (!name.startsWith('_')) cpSync('src/pages/_shared/common.css', `dist/pages/${name}/common.css`);
 }
 cpSync('src/assets/icon.png', 'dist/pages/newtab/icon.png');
+// Stamp the version into the new tab page.
+{
+  const { version } = JSON.parse(readFileSync('package.json', 'utf8'));
+  const page = 'dist/pages/newtab/index.html';
+  writeFileSync(page, readFileSync(page, 'utf8').replace('{{VERSION}}', `v${version.split('.').slice(0, 2).join('.')}`));
+}

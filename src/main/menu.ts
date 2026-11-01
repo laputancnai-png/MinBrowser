@@ -50,7 +50,7 @@ export function buildMenu(app: BrowserApp): Menu {
         { label: '打开地址栏', accelerator: 'CmdOrCtrl+L', click: tabs((t) => t.focusAddress()) },
         { type: 'separator' },
         { label: '立即锁定', accelerator: 'CmdOrCtrl+Shift+L', click: () => app.lock() },
-        ...(isMac ? [] : [{ label: '设置', accelerator: 'Ctrl+,', click: page('settings') }, { type: 'separator' as const }, { label: '退出', role: 'quit' as const }]),
+        ...(isMac ? [] : [{ label: '设置', accelerator: 'Ctrl+,', click: page('settings') }, { label: '关于 MinBrowser', role: 'about' as const }, { type: 'separator' as const }, { label: '退出', role: 'quit' as const }]),
       ],
     },
     { role: 'editMenu', label: '编辑' },

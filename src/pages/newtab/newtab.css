@@ -77,3 +77,9 @@ p {
 .logo {
   margin-bottom: 14px;
 }
+
+.version {
+  margin-top: 4px;
+  opacity: 0.7;
+  font-size: 12px;
+}
