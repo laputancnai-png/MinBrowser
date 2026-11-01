@@ -94,7 +94,13 @@ async function launch() {
     // A throwaway HOME keeps the test away from your real data and Chrome profile.
     env: { ...process.env, HOME, XDG_CONFIG_HOME: path.join(HOME, '.config') },
   });
-  const ui = await app.firstWindow();
+  // The browser UI page (other views, like the split-view layers, are pages too).
+  let ui = null;
+  for (let i = 0; i < 100 && !ui; i++) {
+    ui = app.windows().find((w) => w.url().endsWith('renderer/index.html')) ?? null;
+    if (!ui) await new Promise((r) => setTimeout(r, 100));
+  }
+  if (!ui) throw new Error('browser UI page not found');
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setBounds({ x: 0, y: 0, width: 1280, height: 800 }));
   const cmd = (name, ...a) => ui.evaluate(([n, x]) => window.minbrowser.command(n, ...x), [name, a]);
   const inTab = (part, js) =>
@@ -516,6 +522,53 @@ async function multiStepLogin() {
   await app.close();
 }
 
+async function splitView() {
+  const { app, ui, cmd, go } = await launch();
+  await unlockWith(ui, PW2);
+  const panes = () =>
+    app.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()[0]
+        .contentView.children.map((v) => ({ url: v.webContents.getURL(), b: v.getBounds() }))
+        .filter((p) => p.url.startsWith('http')),
+    );
+  await go(`${SITE}/page/31`);
+  await cmd('newTab');
+  await go(`${SITE}/page/32`);
+  // Drag a tab out of the strip to the right edge of the page.
+  const t = await (await ui.$('.tab:has-text("Page 31")')).boundingBox();
+  await ui.mouse.move(t.x + t.width / 2, t.y + t.height / 2);
+  await ui.mouse.down();
+  await ui.mouse.move(t.x + t.width / 2, 300, { steps: 6 });
+  await ui.mouse.move(1150, 400, { steps: 10 });
+  await wait(300);
+  await ui.mouse.up();
+  await wait(800);
+  let p = await panes();
+  check('dragging a tab to the right edge splits the view', p.length === 2 && p.find((x) => x.b.x > 300)?.url.endsWith('/page/31'), JSON.stringify(p.map((x) => x.url)));
+  // Drag the divider (a transparent layer over the gap that owns the drag).
+  let handle = null;
+  for (const w of app.windows()) {
+    if (w.url().endsWith('split-shield.html') && (await w.evaluate(() => document.body.className)).includes('handle')) handle = w;
+  }
+  const [hw, hh] = await handle.evaluate(() => [innerWidth, innerHeight]);
+  await handle.mouse.move(hw / 2, hh / 2);
+  await handle.mouse.down();
+  await wait(300);
+  await handle.mouse.move(400, hh / 2, { steps: 8 });
+  await handle.mouse.up();
+  await wait(500);
+  p = await panes();
+  check('dragging the divider resizes both sides', Math.abs((p.find((x) => x.b.x < 300)?.b.width ?? 0) - 400) < 30, JSON.stringify(p.map((x) => x.b)));
+  await cmd('splitOrientation', 'vertical');
+  await wait(400);
+  p = await panes();
+  check('split switches to top/bottom', p.length === 2 && Math.abs(p[0].b.x - p[1].b.x) < 2);
+  await cmd('unsplit');
+  await wait(400);
+  check('exiting the split shows one page', (await panes()).length === 1);
+  await app.close();
+}
+
 (async () => {
   fs.mkdirSync(DATA, { recursive: true });
   fakeChromeProfile();
@@ -527,6 +580,7 @@ async function multiStepLogin() {
     await tabReorder();
     await bookmarkBubble();
     await multiStepLogin();
+    await splitView();
   } finally {
     server.close();
     fs.rmSync(TMP, { recursive: true, force: true });

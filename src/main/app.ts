@@ -18,6 +18,8 @@ import { siteOf } from '../shared/privacy';
 import { originOf } from '../shared/url';
 import { AdBlocker } from './adblock';
 import { BookmarkPopup } from './bookmark-popup';
+import { SplitShield } from './split-shield';
+import { DropZone, dropZone, Orientation, ratioAt, splitRects, zoneRect } from '../shared/split';
 import { BAR_ID, BOOKMARKS_SCHEMA, BookmarkNode, BookmarkService } from './bookmarks';
 import { ConfigStore, location } from './config';
 import { DownloadManager } from './downloads';
@@ -66,6 +68,11 @@ export class BrowserApp {
   adblockStatus: { updating: boolean; error: string | null } = { updating: false, error: null };
   downloads: DownloadManager | null = null;
   popup: BookmarkPopup | null = null;
+  shield: SplitShield | null = null;
+  /** Transparent handle over the gap between split panes; it owns divider drags. */
+  dividerHandle: SplitShield | null = null;
+  /** What is being dragged over the page area, if anything. */
+  private splitDrag: { kind: 'divider' } | { kind: 'tab'; tabId: number; zone: DropZone | null } | null = null;
   private vault: Vault | null = null;
   private recorder: HistoryRecorder;
   private pendingSave: PendingSave | null = null;
@@ -102,6 +109,7 @@ export class BrowserApp {
     this.watchForAutoLock();
     this.createWindow();
     this.registerPopupIpc();
+    this.registerShieldIpc();
   }
 
   // ---------------------------------------------------------------- window
@@ -133,6 +141,8 @@ export class BrowserApp {
     });
     this.win = win;
     this.popup = new BookmarkPopup(win);
+    this.shield = new SplitShield(win);
+    this.dividerHandle = new SplitShield(win);
     const ui = win.webContents;
     ui.on('will-navigate', (e) => e.preventDefault());
     ui.setWindowOpenHandler(() => ({ action: 'deny' }));
@@ -185,6 +195,7 @@ export class BrowserApp {
           blocked: t.blocked,
           shield: !cfg?.adblockEnabled ? 'off' : site && sites.adblockAllowed(site) ? 'paused' : 'on',
           showKey: isWeb && (t.hasLoginForm || (origin !== null && passwords.forOrigin(origin).length > 0)),
+          splitPane: t.splitPane,
         };
       });
       bar = bookmarks.children(BAR_ID).map((b) => ({ id: b.id, type: b.type, title: b.title, url: b.url, description: b.description }));
@@ -200,6 +211,10 @@ export class BrowserApp {
       bookmarksBar: bar,
       downloadsActive: this.downloads?.activeCount() ?? 0,
       savePrompt: p ? { tabId: p.tabId, origin: p.origin, username: p.username, update: p.update } : null,
+      split: (() => {
+        const s = unlocked ? this.tabs!.splitState : null;
+        return s ? { orientation: s.orientation, ratio: s.ratio, panes: s.ids } : null;
+      })(),
     };
   }
 
@@ -217,6 +232,7 @@ export class BrowserApp {
       }
       return { x: r.x, y: r.y, width: r.width, height: r.height };
     };
+    const orient = (v: unknown): Orientation => (v === 'vertical' ? 'vertical' : 'horizontal');
     const num = (i: number) => {
       if (typeof args[i] !== 'number' || !Number.isFinite(args[i])) throw new Error('bad argument');
       return args[i] as number;
@@ -264,6 +280,20 @@ export class BrowserApp {
         return tabs.setChromeHeight(num(0));
       case 'toggleBookmark':
         return this.toggleBookmark();
+      case 'tabMenu':
+        return this.tabMenu(num(0), num(1), num(2));
+      case 'splitTab':
+        return tabs.splitTab(args[0] === null ? null : num(0), orient(args[1]));
+      case 'unsplit':
+        return tabs.unsplit();
+      case 'splitOrientation':
+        return tabs.setSplitOrientation(orient(args[0]));
+      case 'swapSplit':
+        return tabs.swapSplit();
+      case 'tabTearStart':
+        return this.startSplitDrag({ kind: 'tab', tabId: num(0), zone: null });
+      case 'splitPointer':
+        return this.splitPointer(str(0), num(1), num(2));
       case 'closePopup':
         return this.popup?.close();
       case 'starClick':
@@ -440,6 +470,7 @@ export class BrowserApp {
       titleChanged: (tab, title) => this.recorder.titleChanged(tab.id, title),
       // Clicking into the page dismisses the bookmark bubble, like any popup.
       focused: () => this.popup?.close(),
+      layoutChanged: () => this.updateDividerHandle(),
       closed: (tab) => {
         this.scheduleSessionSave();
         this.recorder.finish(tab.id);
@@ -447,7 +478,7 @@ export class BrowserApp {
       },
     });
     const saved = this.config?.get().restoreSession ? this.services?.session.load() : undefined;
-    if (saved && saved.tabs.length > 0) this.tabs.restore(saved.tabs, saved.activeIndex);
+    if (saved && saved.tabs.length > 0) this.tabs.restore(saved.tabs, saved.activeIndex, saved.split);
     else this.tabs.create();
     void this.maybeUpdateAdblock();
   }
@@ -480,6 +511,8 @@ export class BrowserApp {
     if (this.phase !== 'unlocked' || !this.services) return;
     this.saveSession();
     this.popup?.close();
+    this.endSplitDrag();
+    this.dividerHandle?.hide();
     this.recorder.finishAll();
     this.pendingSave = null;
     this.closeServices();
@@ -605,6 +638,123 @@ export class BrowserApp {
     this.config?.set({ lastBookmarkFolder: parent });
     this.emit();
     this.popup?.show(id, !same, anchor);
+  }
+
+  // ---------------------------------------------------------------- split view
+
+  /** Right-click on a tab. */
+  private tabMenu(id: number, x: number, y: number): void {
+    const tabs = this.tabs;
+    if (!tabs?.get(id)) return;
+    const split = tabs.splitState;
+    const inSplit = !!split?.ids.includes(id);
+    const items: MenuItemConstructorOptions[] = [];
+    if (!inSplit) {
+      items.push(
+        { label: '在右侧分屏打开', click: () => tabs.splitTab(id, 'horizontal') },
+        { label: '在下方分屏打开', click: () => tabs.splitTab(id, 'vertical') },
+      );
+    }
+    if (split) {
+      if (items.length) items.push({ type: 'separator' });
+      items.push(
+        split.orientation === 'horizontal'
+          ? { label: '改为上下分屏', click: () => tabs.setSplitOrientation('vertical') }
+          : { label: '改为左右分屏', click: () => tabs.setSplitOrientation('horizontal') },
+        { label: '交换两侧', click: () => tabs.swapSplit() },
+        { label: '退出分屏', click: () => tabs.unsplit() },
+      );
+    }
+    items.push({ type: 'separator' }, { label: '关闭标签页', click: () => tabs.close(id) });
+    Menu.buildFromTemplate(items).popup({ window: this.win!, x, y });
+  }
+
+  /** Dragging a tab out of the strip: show the drop layer over the pages. */
+  private startSplitDrag(drag: NonNullable<BrowserApp['splitDrag']>): void {
+    const tabs = this.tabs;
+    if (!tabs || !this.shield) return;
+    this.splitDrag = drag;
+    this.popup?.close();
+    this.shield.show('tabdrop', tabs.splitState?.orientation ?? 'horizontal', tabs.contentArea());
+  }
+
+  /**
+   * Keep the divider handle over the gap between the two panes and above the
+   * pages. During a divider drag it covers the whole page area instead, so the
+   * pointer never leaves it.
+   */
+  private updateDividerHandle(): void {
+    const handle = this.dividerHandle;
+    const tabs = this.tabs;
+    const split = this.phase === 'unlocked' ? tabs?.splitState : null;
+    if (!handle) return;
+    if (!split || !tabs) {
+      handle.hide();
+      return;
+    }
+    const area = tabs.contentArea();
+    const rect = this.splitDrag?.kind === 'divider' ? area : splitRects(area, split.orientation, split.ratio).divider;
+    if (!handle.isShown || this.handleOrientation !== split.orientation) {
+      handle.show('handle', split.orientation, rect);
+      this.handleOrientation = split.orientation;
+    } else {
+      handle.setBounds(rect);
+    }
+    handle.raise();
+  }
+
+  private handleOrientation: Orientation | null = null;
+
+  /** Pointer events during a split drag, from the UI or from the drag layer (window coordinates). */
+  private splitPointer(kind: string, x: number, y: number): void {
+    const drag = this.splitDrag;
+    const tabs = this.tabs;
+    if (!drag || !tabs) return;
+    const area = tabs.contentArea();
+    if (kind === 'cancel') return this.endSplitDrag();
+    if (drag.kind === 'divider') {
+      const split = tabs.splitState;
+      if (split) tabs.setSplitRatio(ratioAt(area, split.orientation, x, y));
+      if (kind === 'up') this.endSplitDrag();
+      return;
+    }
+    const zone = dropZone(area, x, y);
+    if (zone !== drag.zone) {
+      drag.zone = zone;
+      this.shield?.setZone(zone ? zoneRect(area, zone) : null);
+    }
+    if (kind === 'up') {
+      this.endSplitDrag();
+      if (zone && tabs.get(drag.tabId)) tabs.splitTab(drag.tabId, zone === 'right' ? 'horizontal' : 'vertical');
+    }
+  }
+
+  private endSplitDrag(): void {
+    this.splitDrag = null;
+    this.shield?.hide();
+    this.updateDividerHandle();
+    this.emit();
+  }
+
+  private registerShieldIpc(): void {
+    ipcMain.on(Ipc.ShieldEvent, (e, kind: unknown, sx: unknown, sy: unknown) => {
+      if (typeof kind !== 'string' || typeof sx !== 'number' || typeof sy !== 'number' || !this.win) return;
+      // The layers report screen coordinates; turn them into window coordinates.
+      const content = this.win.getContentBounds();
+      const x = sx - content.x;
+      const y = sy - content.y;
+      if (this.dividerHandle?.owns(e.sender)) {
+        if (kind === 'down' && this.tabs?.splitState) {
+          this.splitDrag = { kind: 'divider' };
+          this.popup?.close();
+          this.updateDividerHandle(); // grow to cover the pages for the drag
+          return;
+        }
+        if (this.splitDrag?.kind === 'divider') this.splitPointer(kind, x, y);
+        return;
+      }
+      if (this.shield?.owns(e.sender) && kind !== 'down') this.splitPointer(kind, x, y);
+    });
   }
 
   private registerPopupIpc(): void {

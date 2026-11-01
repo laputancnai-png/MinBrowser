@@ -195,16 +195,17 @@ describe('SessionService', () => {
     const key = randomKey();
     const open = () => EncryptedStore.open(dir, 'session', Buffer.from(key), SESSION_SCHEMA);
     const s = new SessionService(open());
-    expect(s.load()).toEqual({ tabs: [], activeIndex: 0 });
+    expect(s.load()).toEqual({ tabs: [], activeIndex: 0, split: null });
     const tabs = [
       { url: 'https://a.com/', title: 'A' },
       { url: 'min://history/', title: '历史记录' },
       { url: 'https://c.com/x', title: 'C' },
     ];
-    s.save({ tabs, activeIndex: 2 });
+    const split = { first: 0, second: 2, orientation: 'vertical' as const, ratio: 0.4 };
+    s.save({ tabs, activeIndex: 2, split });
     // no close(): the process "crashed"
     const s2 = new SessionService(open());
-    expect(s2.load()).toEqual({ tabs, activeIndex: 2 });
+    expect(s2.load()).toEqual({ tabs, activeIndex: 2, split });
     s2.clear();
     expect(new SessionService(open()).load().tabs).toEqual([]);
   });

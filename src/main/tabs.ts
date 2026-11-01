@@ -1,6 +1,7 @@
 import { BrowserWindow, Session, WebContents, WebContentsView } from 'electron';
 import { join } from 'node:path';
-import { Ipc, LoginStep } from '../shared/ipc';
+import { Ipc, LoginStep, Rect } from '../shared/ipc';
+import { clampRatio, Orientation, splitRects } from '../shared/split';
 import { NEW_TAB_URL, displayUrl, isInternalUrl, resolveInput } from '../shared/url';
 import type { Transition } from './history';
 
@@ -35,6 +36,8 @@ export interface TabHooks {
   navigated(tab: Tab, url: string, transition: Transition): void;
   titleChanged(tab: Tab, title: string): void;
   closed(tab: Tab): void;
+  /** Pages were moved or resized (split ratio, window size, chrome height...). */
+  layoutChanged?(): void;
   /** A page got keyboard focus (the user clicked into it). */
   focused?(tab: Tab): void;
 }
@@ -50,6 +53,23 @@ export interface TabSnapshot {
   canGoForward: boolean;
   blocked: number;
   hasLoginForm: boolean;
+  /** 0 = left/top pane, 1 = right/bottom pane, null = not in the split view. */
+  splitPane: 0 | 1 | null;
+}
+
+/** Two tabs shown at once. The active tab is the pane that has focus. */
+export interface SplitState {
+  ids: [number, number];
+  orientation: Orientation;
+  ratio: number;
+}
+
+/** A split view as saved with the session: positions in the saved tab list. */
+export interface SavedSplit {
+  first: number;
+  second: number;
+  orientation: Orientation;
+  ratio: number;
 }
 
 const stripHash = (url: string) => url.split('#', 1)[0];
@@ -61,6 +81,9 @@ export class TabManager {
   private nextId = 1;
   private chromeHeight = DEFAULT_CHROME_HEIGHT;
   private visible = true;
+  private split: SplitState | null = null;
+  /** Tabs whose views are currently in the window. */
+  private attached = new Set<number>();
 
   constructor(
     private readonly win: BrowserWindow,
@@ -127,15 +150,23 @@ export class TabManager {
     this.order.splice(index, 1);
     this.tabs.delete(id);
     this.win.contentView.removeChildView(tab.view);
+    this.attached.delete(id);
     this.hooks.closed(tab);
     tab.view.webContents.close();
 
+    // Closing either side of a split leaves the other side on its own.
+    let next: number | null = null;
+    if (this.split?.ids.includes(id)) {
+      next = this.split.ids.find((t) => t !== id) ?? null;
+      this.split = null;
+    }
     if (this.order.length === 0) {
       this.activeId = null;
       this.create();
       return;
     }
-    if (this.activeId === id) this.activate(this.order[Math.min(index, this.order.length - 1)]);
+    if (this.activeId === id) this.activate(next ?? this.order[Math.min(index, this.order.length - 1)]);
+    else if (next !== null) this.syncViews();
     else this.hooks.changed();
   }
 
@@ -146,34 +177,132 @@ export class TabManager {
   activate(id: number): void {
     const tab = this.tabs.get(id);
     if (!tab) return;
-    const prev = this.active();
-    if (prev && prev !== tab) this.win.contentView.removeChildView(prev.view);
+    // In a split, picking another tab shows it in the pane that has focus.
+    if (this.split && !this.split.ids.includes(id)) {
+      const pane = Math.max(0, this.split.ids.indexOf(this.activeId ?? -1));
+      this.split.ids[pane] = id;
+    }
     this.activeId = id;
-    if (tab.deferred) {
-      const { url } = tab.deferred;
-      tab.deferred = null;
-      tab.pendingTransition = 'restore';
-      tab.view.webContents.loadURL(url);
-    }
-    if (this.visible) {
-      this.win.contentView.addChildView(tab.view);
-      this.layout();
-      if (tab.view.webContents.getURL() !== NEW_TAB_URL) tab.view.webContents.focus();
-    }
+    this.syncViews();
+    if (this.visible && tab.view.webContents.getURL() !== NEW_TAB_URL) tab.view.webContents.focus();
     this.hooks.changed();
   }
 
   /** Hide every page, e.g. while the browser is locked. */
   setVisible(visible: boolean): void {
     this.visible = visible;
-    const tab = this.active();
-    if (!tab) return;
-    if (visible) {
-      this.win.contentView.addChildView(tab.view);
-      this.layout();
-    } else {
-      this.win.contentView.removeChildView(tab.view);
+    this.syncViews();
+  }
+
+  // ---------------------------------------------------------------- split view
+
+  get splitState(): SplitState | null {
+    return this.split ? { ...this.split, ids: [...this.split.ids] } : null;
+  }
+
+  /**
+   * Show `tabId` next to another tab, on the right (horizontal) or below
+   * (vertical). Splitting the active tab pairs it with its neighbour; a lone
+   * tab gets a new tab beside it. Already split: `tabId` replaces the pane
+   * that doesn't have focus.
+   */
+  splitTab(tabId: number | null, orientation: Orientation): void {
+    if (this.activeId === null) return;
+    if (this.split) {
+      this.split.orientation = orientation;
+      if (tabId !== null && !this.split.ids.includes(tabId)) {
+        const other = this.split.ids[0] === this.activeId ? 1 : 0;
+        this.split.ids[other] = tabId;
+      }
+      this.activate(tabId ?? this.activeId);
+      return;
     }
+    let first = this.activeId;
+    let second = tabId;
+    if (second === first) {
+      const i = this.order.indexOf(first);
+      const neighbour = this.order[i - 1] ?? this.order[i + 1];
+      if (neighbour === undefined) second = null;
+      else first = neighbour;
+    }
+    if (second === null) second = this.create(NEW_TAB_URL, { activate: false });
+    this.split = { ids: [first, second], orientation, ratio: 0.5 };
+    // Keep the pair next to each other in the tab strip.
+    this.order.splice(this.order.indexOf(second), 1);
+    this.order.splice(this.order.indexOf(first) + 1, 0, second);
+    this.activate(second);
+    if (this.tabs.get(second)?.view.webContents.getURL() === NEW_TAB_URL || this.tabs.get(second)?.view.webContents.getURL() === '') {
+      this.focusAddress();
+    }
+  }
+
+  unsplit(): void {
+    if (!this.split) return;
+    this.split = null;
+    this.syncViews();
+    this.hooks.changed();
+  }
+
+  setSplitOrientation(orientation: Orientation): void {
+    if (!this.split || this.split.orientation === orientation) return;
+    this.split.orientation = orientation;
+    this.layout();
+    this.hooks.changed();
+  }
+
+  swapSplit(): void {
+    if (!this.split) return;
+    this.split.ids.reverse();
+    this.layout();
+    this.hooks.changed();
+  }
+
+  setSplitRatio(ratio: number): void {
+    if (!this.split) return;
+    const r = clampRatio(ratio);
+    if (Math.abs(r - this.split.ratio) < 0.001) return;
+    this.split.ratio = r;
+    this.layout();
+    this.hooks.changed();
+  }
+
+  /** The area below the browser chrome where pages are shown. */
+  contentArea(): Rect {
+    const [width, height] = this.win.getContentSize();
+    return { x: 0, y: this.chromeHeight, width, height: Math.max(0, height - this.chromeHeight) };
+  }
+
+  /** Clicking into one side of a split makes it the active tab. */
+  private focusPane(id: number): void {
+    if (!this.split?.ids.includes(id) || this.activeId === id) return;
+    this.activeId = id;
+    this.hooks.changed();
+  }
+
+  /** Put exactly the visible tabs' views in the window, and lay them out. */
+  private syncViews(): void {
+    const want = new Set<number>(!this.visible ? [] : this.split ? this.split.ids : this.activeId !== null ? [this.activeId] : []);
+    for (const id of [...this.attached]) {
+      if (want.has(id)) continue;
+      const t = this.tabs.get(id);
+      if (t) this.win.contentView.removeChildView(t.view);
+      this.attached.delete(id);
+    }
+    for (const id of want) {
+      const t = this.tabs.get(id);
+      if (!t) continue;
+      if (t.deferred) {
+        const { url } = t.deferred;
+        t.deferred = null;
+        t.pendingTransition = 'restore';
+        t.view.webContents.loadURL(url);
+      }
+      if (!this.attached.has(id)) {
+        this.win.contentView.addChildView(t.view);
+        this.attached.add(id);
+      }
+    }
+    this.layout();
   }
 
   setChromeHeight(px: number): void {
@@ -317,23 +446,37 @@ export class TabManager {
    * Bring back saved tabs. Only the active one loads now; the others load
    * when they are first opened, so restoring many tabs stays fast.
    */
-  restore(tabs: { url: string; title: string }[], activeIndex: number): void {
+  restore(tabs: { url: string; title: string }[], activeIndex: number, split?: SavedSplit | null): void {
     const ids = tabs.map((t) => this.create(t.url, { activate: false, deferredTitle: t.title, transition: 'restore' }));
-    this.activate(ids[Math.min(Math.max(activeIndex, 0), ids.length - 1)]);
+    const active = ids[Math.min(Math.max(activeIndex, 0), ids.length - 1)];
+    if (split && ids[split.first] !== undefined && ids[split.second] !== undefined && split.first !== split.second) {
+      this.split = { ids: [ids[split.first], ids[split.second]], orientation: split.orientation, ratio: clampRatio(split.ratio) };
+      this.activeId = this.split.ids[0];
+      this.activate(this.split.ids.includes(active) ? active : this.split.ids[0]);
+      return;
+    }
+    this.activate(active);
   }
 
   /** What to save so the tabs can be restored: real pages only, in order. */
-  sessionTabs(): { tabs: { url: string; title: string }[]; activeIndex: number } {
+  sessionTabs(): { tabs: { url: string; title: string }[]; activeIndex: number; split: SavedSplit | null } {
     const tabs: { url: string; title: string }[] = [];
+    const indexOf = new Map<number, number>();
     let activeIndex = 0;
     for (const tab of this.all()) {
       if (tab.view.webContents.isDestroyed()) continue;
       const url = this.pageUrl(tab);
       if (!url || url === NEW_TAB_URL || url === 'about:blank' || url.startsWith(ERROR_PAGE)) continue;
       if (tab.id === this.activeId) activeIndex = tabs.length;
+      indexOf.set(tab.id, tabs.length);
       tabs.push({ url, title: tab.deferred?.title ?? tab.view.webContents.getTitle() });
     }
-    return { tabs, activeIndex };
+    let split: SavedSplit | null = null;
+    if (this.split) {
+      const [a, b] = this.split.ids.map((id) => indexOf.get(id));
+      if (a !== undefined && b !== undefined) split = { first: a, second: b, orientation: this.split.orientation, ratio: this.split.ratio };
+    }
+    return { tabs, activeIndex, split };
   }
 
   snapshot(): TabSnapshot[] {
@@ -354,16 +497,23 @@ export class TabManager {
         canGoForward: wc.navigationHistory.canGoForward(),
         blocked: tab.blocked,
         hasLoginForm: tab.hasLoginForm,
+        splitPane: this.split ? ((this.split.ids.indexOf(tab.id) as 0 | 1 | -1) === -1 ? null : (this.split.ids.indexOf(tab.id) as 0 | 1)) : null,
       };
     });
   }
 
   private layout(): void {
-    const tab = this.active();
-    if (!tab || !this.visible) return;
-    const [width, height] = this.win.getContentSize();
-    const y = this.chromeHeight;
-    tab.view.setBounds({ x: 0, y, width, height: Math.max(0, height - y) });
+    if (this.visible) {
+      const area = this.contentArea();
+      if (this.split) {
+        const { first, second } = splitRects(area, this.split.orientation, this.split.ratio);
+        this.tabs.get(this.split.ids[0])?.view.setBounds(first);
+        this.tabs.get(this.split.ids[1])?.view.setBounds(second);
+      } else {
+        this.active()?.view.setBounds(area);
+      }
+    }
+    this.hooks.layoutChanged?.();
   }
 
   private wire(tab: Tab): void {
@@ -375,7 +525,10 @@ export class TabManager {
       update();
     });
     wc.on('did-start-loading', update);
-    wc.on('focus', () => this.hooks.focused?.(tab));
+    wc.on('focus', () => {
+      this.focusPane(tab.id);
+      this.hooks.focused?.(tab);
+    });
     wc.on('did-stop-loading', update);
     // Reset the blocked counter when the navigation starts: the new page's first
     // requests can be blocked before 'did-navigate' reaches us.

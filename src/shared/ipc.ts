@@ -9,6 +9,10 @@ export const Ipc = {
   StarRequest: 'ui:star-request',
   /** Bookmark bubble -> main, invoke(command, ...args) */
   Popup: 'popup:command',
+  /** Split-view drag layer <-> main */
+  ShieldEvent: 'shield:event',
+  ShieldMode: 'shield:mode',
+  ShieldZone: 'shield:zone',
   /** Internal min:// pages -> main, invoke(method, args) */
   Internal: 'internal',
   /** Tab password agent <-> main */
@@ -38,6 +42,8 @@ export interface TabState {
   shield: 'on' | 'paused' | 'off';
   /** Show the key button: a login form is present or logins are saved for this site. */
   showKey: boolean;
+  /** 0 = left/top, 1 = right/bottom when shown in the split view. */
+  splitPane: 0 | 1 | null;
 }
 
 export interface BarItem {
@@ -65,6 +71,8 @@ export interface UiState {
   bookmarksBar: BarItem[];
   downloadsActive: number;
   savePrompt: SavePrompt | null;
+  /** Two tabs shown at once; the active tab is the pane with focus. */
+  split: { orientation: 'horizontal' | 'vertical'; ratio: number; panes: [number, number] } | null;
 }
 
 export interface SetupDirResult {

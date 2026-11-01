@@ -15,7 +15,7 @@ await Promise.all([
     external: ['electron'],
   }),
   // Sandboxed preloads must be a single CommonJS file that only requires "electron".
-  ...['ui', 'tab', 'popup'].map((name) =>
+  ...['ui', 'tab', 'popup', 'shield'].map((name) =>
     build({
       ...common,
       entryPoints: [`src/preload/${name}.ts`],
@@ -46,6 +46,13 @@ await Promise.all([
   }),
   build({
     ...common,
+    entryPoints: ['src/renderer/split-shield.ts'],
+    outfile: 'dist/renderer/split-shield.js',
+    platform: 'browser',
+    format: 'iife',
+  }),
+  build({
+    ...common,
     entryPoints: ['src/renderer/bookmark-popup.ts'],
     outfile: 'dist/renderer/bookmark-popup.js',
     platform: 'browser',
@@ -57,6 +64,8 @@ cpSync('src/renderer/index.html', 'dist/renderer/index.html');
 cpSync('src/renderer/styles.css', 'dist/renderer/styles.css');
 cpSync('src/renderer/bookmark-popup.html', 'dist/renderer/bookmark-popup.html');
 cpSync('src/renderer/bookmark-popup.css', 'dist/renderer/bookmark-popup.css');
+cpSync('src/renderer/split-shield.html', 'dist/renderer/split-shield.html');
+cpSync('src/renderer/split-shield.css', 'dist/renderer/split-shield.css');
 // The app icon: window/dock icon at runtime, and the logo on the lock, setup and new tab screens.
 cpSync('src/assets', 'dist/assets', { recursive: true });
 cpSync('src/assets/icon.png', 'dist/renderer/icon.png');

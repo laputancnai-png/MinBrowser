@@ -1,5 +1,6 @@
 import type { MinBrowserApi, TabState, UiState } from '../shared/ipc';
 import { passwordStrength } from '../shared/password';
+import { SPLIT_PAD, splitRects } from '../shared/split';
 
 declare global {
   interface Window {
@@ -107,6 +108,7 @@ function render(): void {
   renderToolbar();
   renderBookmarksBar();
   renderInfobar();
+  renderSplit();
 }
 
 interface TabEl {
@@ -147,6 +149,10 @@ function createTabEl(id: number): TabEl {
     send('activateTab', id);
     pressTab(id, root, e);
   });
+  root.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    send('tabMenu', id, e.clientX, e.clientY);
+  });
   root.addEventListener('auxclick', (e) => {
     if (e.button === 1) send('closeTab', id);
   });
@@ -164,6 +170,9 @@ function renderTabs(): void {
     }
     el.root.classList.add('tab');
     el.root.classList.toggle('active', tab.id === state!.activeId);
+    // The two tabs of a split view: marked with which half they show.
+    el.root.classList.toggle('in-split', tab.splitPane !== null);
+    el.root.dataset.split = tab.splitPane === null || !state!.split ? '' : `${state!.split.orientation[0]}${tab.splitPane}`;
     el.root.title = tab.title;
     if (el.title.textContent !== tab.title) el.title.textContent = tab.title;
 
@@ -206,13 +215,32 @@ function renderTabs(): void {
  * the gap. A press without movement is just a click.
  */
 const DRAG_THRESHOLD = 5;
+/** How far below the tab strip a tab must be pulled before it can be dropped into a split. */
+const TEAR_DISTANCE = 30;
+
+/** Pointer positions for split drags, at most one per frame. */
+let splitPending: [number, number] | null = null;
+function sendSplitMove(x: number, y: number): void {
+  const first = !splitPending;
+  splitPending = [x, y];
+  if (!first) return;
+  requestAnimationFrame(() => {
+    if (splitPending) send('splitPointer', 'move', splitPending[0], splitPending[1]);
+    splitPending = null;
+  });
+}
 
 interface TabDrag {
   id: number;
   el: HTMLElement;
   pointerId: number;
   startX: number;
+  startY: number;
+  lastX: number;
+  lastY: number;
   active: boolean;
+  /** Dragged down out of the tab strip, over the pages: dropping there splits the view. */
+  tearing: boolean;
   /** Tab elements and their boxes as they were when the drag started. */
   els: HTMLElement[];
   rects: DOMRect[];
@@ -224,7 +252,21 @@ let tabDrag: TabDrag | null = null;
 
 function pressTab(id: number, el: HTMLElement, e: PointerEvent): void {
   el.setPointerCapture(e.pointerId);
-  tabDrag = { id, el, pointerId: e.pointerId, startX: e.clientX, active: false, els: [], rects: [], from: 0, to: 0 };
+  tabDrag = {
+    id,
+    el,
+    pointerId: e.pointerId,
+    startX: e.clientX,
+    startY: e.clientY,
+    lastX: e.clientX,
+    lastY: e.clientY,
+    active: false,
+    tearing: false,
+    els: [],
+    rects: [],
+    from: 0,
+    to: 0,
+  };
   el.addEventListener('pointermove', onTabDragMove);
   el.addEventListener('pointerup', onTabDragEnd);
   el.addEventListener('pointercancel', onTabDragCancel);
@@ -234,14 +276,36 @@ function onTabDragMove(e: PointerEvent): void {
   const d = tabDrag;
   if (!d || e.pointerId !== d.pointerId) return;
   let dx = e.clientX - d.startX;
+  d.lastX = e.clientX;
+  d.lastY = e.clientY;
   if (!d.active) {
-    if (Math.abs(dx) < DRAG_THRESHOLD) return;
+    if (Math.hypot(dx, e.clientY - d.startY) < DRAG_THRESHOLD) return;
     d.active = true;
     d.els = Array.from(tabsEl.children) as HTMLElement[];
     d.rects = d.els.map((t) => t.getBoundingClientRect());
     d.from = d.to = d.els.indexOf(d.el);
     d.el.classList.add('dragging');
     tabsEl.classList.add('reordering');
+  }
+  // Pulled down out of the strip: the tab is headed for a split.
+  const tearLine = tabsEl.getBoundingClientRect().bottom + TEAR_DISTANCE;
+  if (e.clientY > tearLine) {
+    if (!d.tearing) {
+      d.tearing = true;
+      for (const t of d.els) t.style.transform = '';
+      tabsEl.classList.remove('reordering');
+      d.el.classList.add('tearing');
+      d.to = d.from;
+      send('tabTearStart', d.id);
+    }
+    sendSplitMove(e.clientX, e.clientY);
+    return;
+  }
+  if (d.tearing) {
+    d.tearing = false;
+    d.el.classList.remove('tearing');
+    tabsEl.classList.add('reordering');
+    send('splitPointer', 'cancel', 0, 0);
   }
   const { rects, from } = d;
   const me = rects[from];
@@ -279,6 +343,12 @@ function finishTabDrag(commit: boolean): void {
   if (d.el.hasPointerCapture(d.pointerId)) d.el.releasePointerCapture(d.pointerId);
   tabDrag = null;
   if (!d.active) return;
+  if (d.tearing) {
+    d.el.classList.remove('dragging', 'tearing');
+    for (const t of d.els) t.style.transform = '';
+    send('splitPointer', commit ? 'up' : 'cancel', d.lastX, d.lastY);
+    return;
+  }
   // Settle without animation: put the element in its new place, then clear the offsets.
   tabsEl.classList.remove('reordering');
   d.el.classList.remove('dragging');
@@ -291,7 +361,11 @@ function finishTabDrag(commit: boolean): void {
 }
 
 function onTabDragEnd(e: PointerEvent): void {
-  if (tabDrag && e.pointerId === tabDrag.pointerId) finishTabDrag(true);
+  if (tabDrag && e.pointerId === tabDrag.pointerId) {
+    tabDrag.lastX = e.clientX;
+    tabDrag.lastY = e.clientY;
+    finishTabDrag(true);
+  }
 }
 
 function onTabDragCancel(e: PointerEvent): void {
@@ -620,3 +694,36 @@ $('unlock-switch').addEventListener('click', (e) => {
   e.preventDefault();
   send('switchDataDir');
 });
+
+// ------------------------------------------------------------------ split view
+
+const splitLayer = $('split-layer');
+const splitFocus = $('split-focus');
+const splitDivider = $('split-divider');
+
+const place = (el: HTMLElement, r: { x: number; y: number; width: number; height: number }) => {
+  el.style.left = `${r.x}px`;
+  el.style.top = `${r.y}px`;
+  el.style.width = `${r.width}px`;
+  el.style.height = `${r.height}px`;
+};
+
+/** Divider and focus outline, in the gaps around the two pages (same geometry as the main process). */
+function renderSplit(): void {
+  const split = state?.phase === 'unlocked' ? state.split : null;
+  splitLayer.hidden = !split;
+  if (!split) return;
+  const top = chrome.getBoundingClientRect().bottom;
+  const area = { x: 0, y: top, width: window.innerWidth, height: window.innerHeight - top };
+  const { first, second, divider } = splitRects(area, split.orientation, split.ratio);
+  const focused = split.panes.indexOf(state!.activeId ?? -1) === 1 ? second : first;
+  place(splitFocus, { x: focused.x - SPLIT_PAD, y: focused.y - SPLIT_PAD, width: focused.width + 2 * SPLIT_PAD, height: focused.height + 2 * SPLIT_PAD });
+  place(splitDivider, divider);
+  splitDivider.className = split.orientation;
+}
+
+window.addEventListener('resize', () => renderSplit());
+new ResizeObserver(() => renderSplit()).observe(chrome);
+
+// Dragging the divider is handled by a transparent layer over the gap (main/split-shield.ts).
+

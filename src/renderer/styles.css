@@ -670,3 +670,71 @@ body {
 #bookmarks-bar {
   min-height: 30px;
 }
+
+/* Split view: divider and focus outline live in the gaps between the pages. */
+#split-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+#split-focus {
+  position: absolute;
+  box-sizing: border-box;
+  border: 2px solid var(--accent);
+  border-radius: 4px;
+}
+
+#split-divider {
+  position: absolute;
+}
+
+#split-divider.horizontal {
+  cursor: col-resize;
+}
+
+#split-divider.vertical {
+  cursor: row-resize;
+}
+
+#split-divider span {
+  border-radius: 2px;
+  background: var(--border);
+}
+
+#split-divider.horizontal span {
+  width: 3px;
+  height: 36px;
+}
+
+#split-divider.vertical span {
+  width: 36px;
+  height: 3px;
+}
+
+#split-divider:hover span {
+  background: var(--accent);
+}
+
+/* The two tabs shown in a split, marked with the half they show. */
+.tab.in-split {
+  background: var(--accent-soft);
+}
+
+.tab.in-split.active {
+  background: var(--tab-active);
+}
+
+.tab.in-split .tab-title::before {
+  margin-right: 4px;
+  color: var(--accent);
+}
+
+.tab[data-split="h0"] .tab-title::before { content: "◧"; }
+.tab[data-split="h1"] .tab-title::before { content: "◨"; }
+.tab[data-split="v0"] .tab-title::before { content: "⬒"; }
+.tab[data-split="v1"] .tab-title::before { content: "⬓"; }
+
+.tab.tearing {
+  opacity: 0.5;
+}
