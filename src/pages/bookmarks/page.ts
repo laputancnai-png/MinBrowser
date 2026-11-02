@@ -61,6 +61,7 @@ main.append(
       h('button', { text: '新建文件夹', on: { click: () => newFolder() } }),
       h('button', { class: 'primary', text: '添加网址', on: { click: () => editDialog(null) } }),
       h('button', { text: '导入…', on: { click: () => importDialog() } }),
+      h('button', { text: '导出…', on: { click: () => exportBookmarks() } }),
     ),
     selbar,
     scroller,
@@ -483,6 +484,14 @@ async function removeSelected(): Promise<void> {
   await attempt(() => call('bookmarks.removeMany', ids));
   selected.clear();
   await load();
+}
+
+// ------------------------------------------------------------------ export
+
+async function exportBookmarks(): Promise<void> {
+  if (!confirm('导出的文件不加密，任何能打开这个文件的人都能看到你的收藏。继续导出吗？')) return;
+  const res = await attempt(() => call<{ path: string; count: number } | null>('bookmarks.export'));
+  if (res) toast(`已导出 ${res.count} 个收藏到 ${res.path}`);
 }
 
 // ------------------------------------------------------------------ import

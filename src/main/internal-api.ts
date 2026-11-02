@@ -6,7 +6,7 @@ import { displayVersion } from '../shared/version';
 import { originOf } from '../shared/url';
 import type { BrowserApp } from './app';
 import { BAR_ID, OTHER_ID } from './bookmarks';
-import { findChromeProfiles, parseBookmarksFile, ParsedBookmarks } from './chrome-import';
+import { bookmarksToHtml, countLinks, findChromeProfiles, parseBookmarksFile, ParsedBookmarks } from './chrome-import';
 import { Config } from './config';
 import { visitsToCsv } from './history';
 
@@ -137,6 +137,21 @@ export function registerInternalApi(app: BrowserApp): void {
       });
       if (res.canceled || !res.filePaths[0]) return null;
       return importParsed(parseBookmarksFile(readFileSync(res.filePaths[0], 'utf8')));
+    },
+
+    'bookmarks.export': async () => {
+      const date = new Date().toISOString().slice(0, 10);
+      const res = await dialog.showSaveDialog(app.win!, {
+        title: '导出收藏夹',
+        defaultPath: `minbrowser-bookmarks-${date}.html`,
+        filters: [{ name: '书签文件', extensions: ['html'] }],
+      });
+      if (res.canceled || !res.filePath) return null;
+      const tree = svc().bookmarks.tree();
+      const bar = tree.find((n) => n.id === BAR_ID)!;
+      const other = tree.find((n) => n.id === OTHER_ID);
+      writeFileSync(res.filePath, bookmarksToHtml(bar, other), { mode: 0o600 });
+      return { path: res.filePath, count: countLinks(tree) };
     },
 
     // ------------------------------------------------ passwords

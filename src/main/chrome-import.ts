@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import type { ImportNode } from './bookmarks';
+import type { BookmarkNode, ImportNode } from './bookmarks';
 
 export interface ChromeProfile {
   browser: string;
@@ -136,4 +136,51 @@ export function parseBookmarksHtml(html: string): ParsedBookmarks {
 
 export function parseBookmarksFile(text: string): ParsedBookmarks {
   return text.trimStart().startsWith('{') ? parseChromeBookmarksJson(text) : parseBookmarksHtml(text);
+}
+
+const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+/**
+ * Write bookmarks as a "bookmarks.html" file (Netscape bookmark file), the
+ * format every browser imports. The bar is the folder marked
+ * PERSONAL_TOOLBAR_FOLDER; other bookmarks go at the top level, as Chrome does.
+ */
+export function bookmarksToHtml(bar: BookmarkNode, other: BookmarkNode | undefined): string {
+  const out = [
+    '<!DOCTYPE NETSCAPE-Bookmark-file-1>',
+    '<!-- This is an automatically generated file.',
+    '     It will be read and overwritten.',
+    '     DO NOT EDIT! -->',
+    '<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">',
+    '<TITLE>Bookmarks</TITLE>',
+    '<H1>Bookmarks</H1>',
+    '<DL><p>',
+  ];
+  const date = (ms: number) => (ms > 0 ? ` ADD_DATE="${Math.floor(ms / 1000)}"` : '');
+  const write = (nodes: BookmarkNode[], depth: number) => {
+    const pad = '    '.repeat(depth);
+    for (const n of nodes) {
+      if (n.type === 'folder') {
+        out.push(`${pad}<DT><H3${date(n.created_at)}>${escapeHtml(n.title)}</H3>`, `${pad}<DL><p>`);
+        write(n.children ?? [], depth + 1);
+        out.push(`${pad}</DL><p>`);
+      } else if (n.url) {
+        out.push(`${pad}<DT><A HREF="${escapeHtml(n.url)}"${date(n.created_at)}>${escapeHtml(n.title)}</A>`);
+        // Descriptions are one line in this format.
+        const description = n.description.replace(/\s+/g, ' ').trim();
+        if (description) out.push(`${pad}<DD>${escapeHtml(description)}`);
+      }
+    }
+  };
+  out.push(`    <DT><H3${date(bar.created_at)} PERSONAL_TOOLBAR_FOLDER="true">${escapeHtml(bar.title)}</H3>`, '    <DL><p>');
+  write(bar.children ?? [], 2);
+  out.push('    </DL><p>');
+  write(other?.children ?? [], 1);
+  out.push('</DL><p>', '');
+  return out.join('\n');
+}
+
+/** How many links a tree holds. */
+export function countLinks(nodes: BookmarkNode[]): number {
+  return nodes.reduce((n, b) => n + (b.type === 'link' ? 1 : countLinks(b.children ?? [])), 0);
 }

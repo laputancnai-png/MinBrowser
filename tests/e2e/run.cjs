@@ -251,6 +251,19 @@ async function firstRun() {
   const other = await inTab('min://bookmarks', "window.min.call('bookmarks.tree')");
   check('moved bookmark is saved in its new folder', other[1].children.some((c) => c.title.startsWith('Tracked Page')));
 
+  // Export: the button on the bookmarks page writes a bookmarks.html file.
+  const exported = path.join(TMP, 'exported-bookmarks.html');
+  await app.evaluate(({ dialog }, file) => {
+    dialog.showSaveDialog = async () => ({ canceled: false, filePath: file });
+  }, exported);
+  bm.once('dialog', (d) => d.accept());
+  await bm.click('button:has-text("导出…")');
+  await wait(800);
+  const html = fs.existsSync(exported) ? fs.readFileSync(exported, 'utf8') : '';
+  check('bookmarks export to a bookmarks.html file', html.startsWith('<!DOCTYPE NETSCAPE-Bookmark-file-1>') && html.includes('HREF="https://bar.example/"') && html.includes('PERSONAL_TOOLBAR_FOLDER="true"'));
+  check('exported bookmarks file is private', fs.existsSync(exported) && (fs.statSync(exported).mode & 0o777) === 0o600);
+  check('export reports how many bookmarks were saved', (await bm.textContent('body')).includes('已导出 4 个收藏'), (await bm.textContent('body')).slice(-200));
+
   await cmd('openPage', 'history');
   await wait(1500);
   const visits = await inTab('min://history', "window.min.call('history.search', {})");
