@@ -22,7 +22,7 @@ Type=Application
 Name=MinBrowser
 GenericName=Web Browser
 Comment=私密浏览器：数据加密保存在你自己的电脑上
-Exec=env PATH=$NODE_DIR:/usr/local/bin:/usr/bin:/bin npm --prefix "$ROOT" start
+Exec=env PATH=$NODE_DIR:/usr/local/bin:/usr/bin:/bin "$ROOT/start.sh"
 Icon=minbrowser
 Terminal=false
 Categories=Network;WebBrowser;

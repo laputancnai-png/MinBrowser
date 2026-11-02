@@ -13,11 +13,12 @@
 
 ## 运行
 
-需要 Node.js 20+。
+需要 Node.js 20+。日常启动不用记命令：macOS 双击 `MinBrowser.command`，Linux 执行一次
+`npm run install-desktop` 后从应用菜单打开，或在终端运行 `./start.sh`（自动安装依赖、构建、启动）。
 
 ```bash
 npm install
-npm start          # 构建并启动
+npm start          # 构建并启动（前台）
 npm test           # 单元测试
 npm run test:e2e   # 端到端测试（驱动真实的浏览器窗口；无图形界面的 Linux 上用 xvfb-run -a）
 npm run typecheck  # 类型检查
