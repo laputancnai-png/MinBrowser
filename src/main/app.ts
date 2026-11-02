@@ -1,6 +1,8 @@
 import {
   app,
   BrowserWindow,
+  clipboard,
+  ContextMenuParams,
   dialog,
   ipcMain,
   Menu,
@@ -15,7 +17,8 @@ import { join } from 'node:path';
 import { BarItem, CommandResult, Ipc, Phase, PopupData, Rect, SavePrompt, SetupDirResult, TabState, UiState } from '../shared/ipc';
 import { generatePassword } from '../shared/password';
 import { siteOf } from '../shared/privacy';
-import { originOf } from '../shared/url';
+import { originOf, searchUrl } from '../shared/url';
+import { pageMenu } from './page-menu';
 import { AdBlocker } from './adblock';
 import { BookmarkPopup } from './bookmark-popup';
 import { SplitShield } from './split-shield';
@@ -477,6 +480,7 @@ export class BrowserApp {
       // Clicking into the page dismisses the bookmark bubble, like any popup.
       focused: () => this.popup?.close(),
       layoutChanged: () => this.updateDividerHandle(),
+      contextMenu: (tab, params) => this.pageContextMenu(tab, params),
       closed: (tab) => {
         this.scheduleSessionSave();
         this.recorder.finish(tab.id);
@@ -962,6 +966,33 @@ export class BrowserApp {
       else if (action === 'never') passwords.setNeverSave(p.origin, true);
     }
     this.emit();
+  }
+
+  /** Right-click inside a web page: links, images, selected text, text fields. */
+  private pageContextMenu(tab: Tab, params: ContextMenuParams): void {
+    const tabs = this.tabs;
+    const wc = tab.view.webContents;
+    if (!tabs || !this.win || this.phase !== 'unlocked') return;
+    const items = pageMenu(
+      params,
+      { canGoBack: wc.navigationHistory.canGoBack(), canGoForward: wc.navigationHistory.canGoForward() },
+      {
+        // Like other browsers: the new tab opens next to this one, in the background.
+        openInNewTab: (url) => tabs.create(url, { transition: 'link', openerId: tab.id, activate: false }),
+        openInSplit: (url) => tabs.openInSplit(url, tab.id),
+        copyText: (text) => clipboard.writeText(text),
+        copyImage: () => wc.copyImageAt(params.x, params.y),
+        download: (url) => wc.downloadURL(url),
+        search: (text) => tabs.create(searchUrl(text), { transition: 'link', openerId: tab.id }),
+        edit: (action) => wc[action](),
+        back: () => wc.navigationHistory.goBack(),
+        forward: () => wc.navigationHistory.goForward(),
+        reload: () => wc.reload(),
+      },
+    );
+    // The page reports where it was clicked inside its own view; the menu wants window coordinates.
+    const b = tab.view.getBounds();
+    Menu.buildFromTemplate(items).popup({ window: this.win, x: b.x + params.x, y: b.y + params.y });
   }
 
   private passwordMenu(x: number, y: number): void {

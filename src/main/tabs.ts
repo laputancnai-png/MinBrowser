@@ -40,6 +40,8 @@ export interface TabHooks {
   layoutChanged?(): void;
   /** A page got keyboard focus (the user clicked into it). */
   focused?(tab: Tab): void;
+  /** The user right-clicked in a page. */
+  contextMenu?(tab: Tab, params: Electron.ContextMenuParams): void;
 }
 
 export interface TabSnapshot {
@@ -243,6 +245,16 @@ export class TabManager {
     this.split = null;
     this.syncViews();
     this.hooks.changed();
+  }
+
+  /**
+   * Open `url` beside the tab it came from: starts a left/right split, or, if
+   * the view is already split, replaces the other pane.
+   */
+  openInSplit(url: string, openerId: number): void {
+    const id = this.create(url, { transition: 'link', openerId, activate: false });
+    if (this.activeId !== openerId) this.activate(openerId);
+    this.splitTab(id, this.split?.orientation ?? 'horizontal');
   }
 
   setSplitOrientation(orientation: Orientation): void {
@@ -592,6 +604,8 @@ export class TabManager {
       tab.favicon = icon;
       update();
     });
+
+    wc.on('context-menu', (_e, params) => this.hooks.contextMenu?.(tab, params));
 
     // Popups and target=_blank links open as a new tab next to this one.
     wc.setWindowOpenHandler(({ url, disposition }) => {

@@ -45,6 +45,8 @@ function startServer() {
     };
     if (url.pathname === '/login')
       return html(page('Login Page', '<form method="post" action="/welcome"><input name="user" autocomplete="username" id="u"><input type="password" name="pw" id="p"><button id="go">Sign in</button></form>'));
+    if (url.pathname === '/links')
+      return html(page('Links Page', '<p><a id="l" href="/page/41" style="display:block;width:200px;height:40px">Go to page 41</a></p><p><input id="f" style="width:200px;height:30px"></p><p id="t">plain text here</p>'));
     if (url.pathname === '/login2') return html(page('Two Step Login', '<form action="/login2/pw" method="get"><input type="email" name="email" id="e" autocomplete="username" placeholder="邮箱"><button id="next">下一步</button></form>'));
     if (url.pathname === '/login2/pw') return html(page('Two Step Password', `<p>账号：${(url.searchParams.get('email') || '').replace(/[<>&"]/g, '')}</p><form method="post" action="/welcome"><input type="password" id="p" autocomplete="current-password"><button id="go">登录</button></form>`));
     if (url.pathname === '/login4') return html(page('Aeries Style', '<form method="post" action="/welcome"><input type="text" id="portalAccountUsername" name="portalAccountUsername" placeholder="Email Address"><a href="#" id="next" onclick="document.getElementById(&quot;pwSection&quot;).style.display=&quot;block&quot;;this.style.display=&quot;none&quot;;return false">Next</a><div id="pwSection" style="display:none"><input type="password" id="portalAccountPassword" name="portalAccountPassword"><button id="LoginButton">Sign In</button></div></form>'));
@@ -574,6 +576,72 @@ async function splitView() {
   await app.close();
 }
 
+async function contextMenu() {
+  const { app, ui, cmd, captureMenus, go } = await launch();
+  await unlockWith(ui, PW2);
+  await captureMenus();
+  await go(`${SITE}/links`);
+  // A real right-click in the page, at the middle of an element.
+  const rightClick = (id) =>
+    app.evaluate(async ({ webContents }, id) => {
+      const w = webContents.getAllWebContents().find((w) => w.getURL().includes('/links'));
+      const [x, y] = await w.executeJavaScript(`(() => { const r = document.getElementById('${id}').getBoundingClientRect(); return [Math.round(r.x + r.width / 2), Math.round(r.y + r.height / 2)]; })()`);
+      globalThis.__menu = null;
+      w.focus();
+      w.sendInputEvent({ type: 'mouseDown', x, y, button: 'right', clickCount: 1 });
+      w.sendInputEvent({ type: 'mouseUp', x, y, button: 'right', clickCount: 1 });
+      for (let i = 0; i < 30 && !globalThis.__menu; i++) await new Promise((r) => setTimeout(r, 50));
+      return globalThis.__menu ? globalThis.__menu.t.map((x) => x.label ?? '---') : null;
+    }, id);
+  const choose = (label) =>
+    app.evaluate((_, label) => {
+      const { t, m } = globalThis.__menu;
+      m.closePopup();
+      t.find((x) => x.label === label).click();
+    }, label);
+  const tabs = () => ui.evaluate(() => [...document.querySelectorAll('.tab')].map((t) => ({ title: t.textContent, active: t.classList.contains('active') })));
+
+  const start = await tabs();
+  const at = start.findIndex((x) => x.active);
+  let labels = await rightClick('l');
+  check('right-clicking a link offers "open in new tab"', labels?.includes('在新标签页中打开链接'), JSON.stringify(labels));
+  await choose('在新标签页中打开链接');
+  await wait(1200);
+  let t = await tabs();
+  check('link opens in a new background tab next to the page', t.length === start.length + 1 && t[at + 1].title.includes('Page 41') && t[at].active, JSON.stringify(t));
+
+  labels = await rightClick('f');
+  check('right-clicking a text field offers paste', labels?.includes('粘贴') && labels?.includes('全选'), JSON.stringify(labels));
+  labels = await rightClick('t');
+  check('right-clicking the page offers back/forward/reload', labels?.includes('重新加载'), JSON.stringify(labels));
+
+  await rightClick('l');
+  await choose('复制链接地址');
+  const copied = await app.evaluate(({ clipboard }) => clipboard.readText());
+  check('copy link address', copied === `http://${SITE}/page/41`, copied);
+
+  await rightClick('l');
+  await choose('在分屏中打开链接');
+  await wait(1200);
+  const panes = await app.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()[0].contentView.children.map((v) => v.webContents.getURL()).filter((u) => u.startsWith('http')),
+  );
+  check('link opens in the split view', panes.length === 2 && panes.some((u) => u.endsWith('/links')) && panes.some((u) => u.endsWith('/page/41')), JSON.stringify(panes));
+  await cmd('unsplit');
+
+  // Middle-click opens a background tab without any menu.
+  const before = (await tabs()).length;
+  await app.evaluate(async ({ webContents }) => {
+    const w = webContents.getAllWebContents().find((w) => w.getURL().endsWith('/links'));
+    const [x, y] = await w.executeJavaScript(`(() => { const r = document.getElementById('l').getBoundingClientRect(); return [Math.round(r.x + 20), Math.round(r.y + 10)]; })()`);
+    w.sendInputEvent({ type: 'mouseDown', x, y, button: 'middle', clickCount: 1 });
+    w.sendInputEvent({ type: 'mouseUp', x, y, button: 'middle', clickCount: 1 });
+  });
+  await wait(1200);
+  check('middle-click opens a link in a new tab', (await tabs()).length === before + 1);
+  await app.close();
+}
+
 async function securityChecks() {
   const { app, ui, go } = await launch();
   await unlockWith(ui, PW2);
@@ -606,6 +674,7 @@ async function securityChecks() {
     await bookmarkBubble();
     await multiStepLogin();
     await splitView();
+    await contextMenu();
     await securityChecks();
   } finally {
     server.close();

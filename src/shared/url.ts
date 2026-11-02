@@ -24,19 +24,19 @@ export function resolveInput(raw: string): string | null {
     } catch {
       // fall through to search
     }
-    return search(input);
+    return searchUrl(input);
   }
 
-  if (/\s/.test(input)) return search(input);
+  if (/\s/.test(input)) return searchUrl(input);
 
-  if (HOST_PORT_RE.test(input)) return toUrl(`http://${input}`) ?? search(input);
+  if (HOST_PORT_RE.test(input)) return toUrl(`http://${input}`) ?? searchUrl(input);
 
   const host = input.split(/[/?#]/, 1)[0].replace(/:\d+$/, '');
   // Only ICANN suffixes count here, so "github.io" is an address rather than a bare suffix.
   const info = parse(host);
-  if (info.isIcann && info.domain) return toUrl(`https://${input}`) ?? search(input);
+  if (info.isIcann && info.domain) return toUrl(`https://${input}`) ?? searchUrl(input);
 
-  return search(input);
+  return searchUrl(input);
 }
 
 /** What the address bar shows for a URL. Internal pages show nothing. */
@@ -49,7 +49,7 @@ export function isInternalUrl(url: string): boolean {
   return url.startsWith('min:');
 }
 
-function search(q: string): string {
+export function searchUrl(q: string): string {
   return SEARCH_URL + encodeURIComponent(q);
 }
 
