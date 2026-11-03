@@ -10,10 +10,12 @@
       <h3 id="heading">已收藏</h3>
       <label for="title">名称</label>
       <input id="title" type="text" autocomplete="off" spellcheck="false" />
-      <label for="folder">文件夹</label>
+      <label for="url" class="link-only">网址</label>
+      <input id="url" class="link-only" type="text" autocomplete="off" spellcheck="false" />
+      <label for="folder" id="folder-label">文件夹</label>
       <select id="folder"></select>
-      <label for="desc">描述</label>
-      <input id="desc" type="text" autocomplete="off" placeholder="一句话说明（可选）" />
+      <label for="desc" class="link-only">描述</label>
+      <input id="desc" class="link-only" type="text" autocomplete="off" placeholder="一句话说明（可选）" />
       <div class="buttons">
         <button type="button" id="remove" class="quiet">移除</button>
         <span class="grow"></span>

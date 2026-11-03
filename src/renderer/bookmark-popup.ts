@@ -12,13 +12,24 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 const title = $<HTMLInputElement>('title');
 const folder = $<HTMLSelectElement>('folder');
 const desc = $<HTMLInputElement>('desc');
+const url = $<HTMLInputElement>('url');
 
 async function init(): Promise<void> {
   const data = (await window.popup.call('data')) as PopupData | null;
   if (!data) return;
-  $('heading').textContent = data.isNew ? '已收藏' : '编辑收藏';
+  const isFolder = data.kind === 'folder';
+  $('heading').textContent = isFolder ? (data.isNew ? '新建文件夹' : '编辑文件夹') : data.isNew ? '已收藏' : '编辑收藏';
   title.value = data.bookmark.title;
   desc.value = data.bookmark.description;
+  url.value = data.bookmark.url;
+  if (isFolder) {
+    // A folder has only a name and a place.
+    for (const el of document.querySelectorAll<HTMLElement>('.link-only')) el.hidden = true;
+    $('folder-label').textContent = '放在';
+    // A new folder can be cancelled; an existing one is deleted from the bar's menu, which asks first.
+    $('remove').textContent = '取消';
+    $('remove').hidden = !data.isNew;
+  }
   for (const f of data.folders) {
     const opt = document.createElement('option');
     opt.value = String(f.id);
@@ -34,7 +45,7 @@ async function init(): Promise<void> {
 
 $('form').addEventListener('submit', (e) => {
   e.preventDefault();
-  void window.popup.call('save', title.value, Number(folder.value), desc.value);
+  void window.popup.call('save', title.value, Number(folder.value), desc.value, url.value);
 });
 $('remove').addEventListener('click', () => void window.popup.call('remove'));
 $('manage').addEventListener('click', () => void window.popup.call('manage'));

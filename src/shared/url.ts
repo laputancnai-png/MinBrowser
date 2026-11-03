@@ -39,6 +39,24 @@ export function resolveInput(raw: string): string | null {
   return searchUrl(input);
 }
 
+/**
+ * An address typed into a "网址" field (not the address bar): always taken as
+ * an address, never turned into a search. Only http(s). Null if it isn't one.
+ */
+export function parseWebAddress(raw: string): string | null {
+  const input = raw.trim();
+  if (!input || /\s/.test(input)) return null;
+  const withScheme = /^[a-z][a-z0-9+.-]*:/i.test(input) && !/^[^\s/]+:\d+/.test(input) ? input : `https://${input}`;
+  try {
+    const url = new URL(withScheme);
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
+    if (!url.hostname.includes('.') && url.hostname !== 'localhost') return null;
+    return url.href;
+  } catch {
+    return null;
+  }
+}
+
 /** What the address bar shows for a URL. Internal pages show nothing. */
 export function displayUrl(url: string): string {
   if (!url || url === NEW_TAB_URL || url === 'about:blank') return '';

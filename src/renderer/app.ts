@@ -471,6 +471,7 @@ function renderBookmarksBar(): void {
     ...state!.bookmarksBar.map((item) => {
       const b = document.createElement('button');
       b.className = 'bar-item';
+      b.dataset.id = String(item.id);
       b.title = [item.title, item.description, item.url].filter(Boolean).join('\n');
       b.innerHTML = svg(item.type === 'folder' ? 'folder' : 'link');
       const label = document.createElement('span');
@@ -570,6 +571,14 @@ function barZone(e: DragEvent): BarZone {
   if (item.type === 'folder' && pos > 0.2 && pos < 0.8) return { el, zone: 'into', index };
   return { el, zone: pos < 0.5 ? 'before' : 'after', index };
 }
+
+// Right-click on the bar: new folder, bookmark this page; on a bookmark also open / edit / delete.
+bar.addEventListener('contextmenu', (e) => {
+  e.preventDefault();
+  const el = (e.target as Element | null)?.closest<HTMLElement>('.bar-item');
+  const r = el?.getBoundingClientRect() ?? { x: e.clientX, y: e.clientY, width: 0, height: 0 };
+  send('barMenu', el ? Number(el.dataset.id) : null, e.clientX, e.clientY, { x: r.x, y: r.y, width: r.width, height: r.height });
+});
 
 bar.addEventListener('dragover', (e) => {
   if (!carriesUrl(e.dataTransfer)) return;

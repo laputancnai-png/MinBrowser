@@ -10,11 +10,6 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <div id="window-controls" hidden>
-      <button id="win-minimize" class="win-button" title="最小化" aria-label="最小化"></button>
-      <button id="win-maximize" class="win-button" title="最大化" aria-label="最大化"></button>
-      <button id="win-close" class="win-button close" title="关闭" aria-label="关闭"></button>
-    </div>
     <header id="chrome" hidden>
       <div id="tabbar">
         <div id="tabs" role="tablist"></div>
@@ -106,6 +101,14 @@
         <p id="unlock-error" class="error" hidden></p>
         <p class="footnote">数据位置：<code id="unlock-dir"></code><br /><a href="#" id="unlock-switch">使用其他数据文件夹</a></p>
       </section>
+    </div>
+    <!-- Last in the page on purpose: window drag areas are worked out in page
+         order, so these buttons must come after the tab strip's drag area or a
+         real mouse click on them starts moving the window instead. -->
+    <div id="window-controls" hidden>
+      <button id="win-minimize" class="win-button" title="最小化" aria-label="最小化"></button>
+      <button id="win-maximize" class="win-button" title="最大化" aria-label="最大化"></button>
+      <button id="win-close" class="win-button close" title="关闭" aria-label="关闭"></button>
     </div>
     <script src="app.js"></script>
   </body>

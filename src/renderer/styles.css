@@ -83,6 +83,7 @@ body {
 }
 
 .win-button {
+  -webkit-app-region: no-drag;
   width: 26px;
   height: 26px;
   display: grid;

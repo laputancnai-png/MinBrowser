@@ -110,3 +110,7 @@ button.quiet {
 button.quiet:hover {
   color: #c4472c;
 }
+
+[hidden] {
+  display: none !important;
+}

@@ -103,6 +103,8 @@ export interface Rect {
 /** What the bookmark bubble shows. */
 export interface PopupData {
   isNew: boolean;
+  /** A folder has only a name and a place; a link also has an address and a description. */
+  kind: 'link' | 'folder';
   bookmark: { id: number; title: string; url: string; description: string; parentId: number };
   folders: { id: number; title: string; depth: number }[];
 }

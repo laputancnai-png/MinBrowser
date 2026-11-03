@@ -179,6 +179,19 @@ async function firstRun() {
     await wait(200);
     const calls = await app.evaluate(() => globalThis.__calls);
     check('title bar buttons minimize and maximize the window', calls.join(',') === 'minimize,maximize', calls.join(','));
+    // A real mouse click through the window system: the buttons sit on the tab
+    // strip, which is a window drag area, and must still get the click.
+    const realClick = async (selector) => {
+      const r = await (await ui.$(selector)).boundingBox();
+      const origin = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getContentBounds());
+      require('node:child_process').execFileSync('python3', [path.join(__dirname, 'xclick.py'), String(Math.round(origin.x + r.x + r.width / 2)), String(Math.round(origin.y + r.y + r.height / 2))]);
+      await wait(400);
+    };
+    await app.evaluate(() => (globalThis.__calls = []));
+    await realClick('#win-maximize');
+    await realClick('#win-minimize');
+    const real = await app.evaluate(() => globalThis.__calls);
+    check('real mouse clicks reach the title bar buttons', real.join(',') === 'maximize,minimize', real.join(','));
   }
 
   await mockDialog(DATA);
@@ -472,7 +485,7 @@ async function tabReorder() {
 }
 
 async function bookmarkBubble() {
-  const { app, ui, go, inTab, cmd } = await launch();
+  const { app, ui, go, inTab, cmd, captureMenus } = await launch();
   await unlockWith(ui, PW2);
   const bubble = async () => {
     for (let i = 0; i < 50; i++) {
@@ -524,6 +537,91 @@ async function bookmarkBubble() {
   await wait(400);
   tree = await treeNow();
   check('dropped page is bookmarked in that folder', (pathOf(tree, `http://${SITE}/page/22`) || []).join('/') === '收藏夹栏/Dev');
+
+  // Right-click on the bookmarks bar.
+  await captureMenus();
+  const barMenu = async (target) => {
+    await app.evaluate(() => (globalThis.__menu = null));
+    if (target) await ui.click(`.bar-item:has-text("${target}")`, { button: 'right' });
+    else {
+      const b = await (await ui.$('#bookmarks-bar')).boundingBox();
+      await ui.mouse.click(b.x + b.width - 40, b.y + b.height / 2, { button: 'right' });
+    }
+    for (let i = 0; i < 30; i++) {
+      const labels = await app.evaluate(() => globalThis.__menu && globalThis.__menu.t.map((x) => x.label ?? '---'));
+      if (labels) return labels;
+      await wait(50);
+    }
+    return null;
+  };
+  const choose = (label) =>
+    app.evaluate((_, label) => {
+      const { t, m } = globalThis.__menu;
+      m.closePopup();
+      t.find((x) => x.label === label).click();
+    }, label);
+  const barTitles = () => ui.$$eval('.bar-item', (b) => b.map((x) => x.textContent));
+
+  let labels = await barMenu(null);
+  check('right-clicking the bookmarks bar offers a new folder', labels?.includes('新建文件夹…') && labels?.includes('收藏当前网页'), JSON.stringify(labels));
+  await choose('新建文件夹…');
+  pop = await bubble();
+  check('new folder bubble asks only for a name', !!pop && (await pop.textContent('#heading')) === '新建文件夹' && !(await pop.isVisible('#url')) && !(await pop.isVisible('#desc')));
+  await pop.fill('#title', '工作');
+  await pop.click('#done').catch(() => {});
+  await wait(500);
+  let titles = await barTitles();
+  check('new folder appears at the end of the bar', titles[titles.length - 1] === '工作', titles.join('|'));
+
+  labels = await barMenu('工作');
+  check('right-clicking a bar folder offers rename and delete', labels?.includes('重命名…') && labels?.includes('删除') && !labels?.includes('打开'), JSON.stringify(labels));
+  await choose('重命名…');
+  pop = await bubble();
+  await pop.fill('#title', '工作资料');
+  await pop.click('#done').catch(() => {});
+  await wait(500);
+  check('folder renamed from the bar', (await barTitles()).includes('工作资料'));
+  await barMenu('工作资料');
+  await choose('删除');
+  await wait(500);
+  check('empty folder deleted from the bar without asking', !(await barTitles()).includes('工作资料'));
+
+  labels = await barMenu('Chrome Bar Link');
+  check('right-clicking a bar bookmark offers open and edit', labels?.includes('在新标签页中打开') && labels?.includes('编辑…'), JSON.stringify(labels));
+  await choose('编辑…');
+  pop = await bubble();
+  check('edit bubble shows the address', (await pop.inputValue('#url')) === 'https://bar.example/');
+  await pop.fill('#url', 'bar2.example');
+  await pop.click('#done').catch(() => {});
+  await wait(500);
+  tree = await treeNow();
+  check('bookmark address edited from the bar', !!pathOf(tree, 'https://bar2.example/'));
+
+  await ui.click('.tab:has-text("Page 22")');
+  await wait(300);
+  await barMenu(null);
+  await choose('收藏当前网页');
+  pop = await bubble();
+  await pop.keyboard.press('Escape').catch(() => {});
+  await wait(400);
+  titles = await barTitles();
+  check('"bookmark this page" adds it to the end of the bar', titles[titles.length - 1] === 'Page 22', titles.join('|'));
+
+  // Deleting a folder that has bookmarks in it asks first.
+  await app.evaluate(({ dialog }) => {
+    dialog.showMessageBox = async () => ({ response: 1 });
+  });
+  await barMenu('Dev');
+  await choose('删除');
+  await wait(500);
+  check('cancelling keeps a folder with bookmarks in it', (await barTitles()).includes('Dev'));
+  await app.evaluate(({ dialog }) => {
+    dialog.showMessageBox = async () => ({ response: 0 });
+  });
+  await barMenu('Dev');
+  await choose('删除');
+  await wait(500);
+  check('confirming deletes the folder', !(await barTitles()).includes('Dev'));
   await app.close();
 }
 

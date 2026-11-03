@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { displayUrl, NEW_TAB_URL, resolveInput, SEARCH_URL } from '../src/shared/url';
+import { displayUrl, NEW_TAB_URL, parseWebAddress, resolveInput, SEARCH_URL } from '../src/shared/url';
 
 const searchFor = (q: string) => SEARCH_URL + encodeURIComponent(q);
 
@@ -48,5 +48,19 @@ describe('displayUrl', () => {
     expect(displayUrl(NEW_TAB_URL)).toBe('');
     expect(displayUrl('about:blank')).toBe('');
     expect(displayUrl('https://a.com/')).toBe('https://a.com/');
+  });
+});
+
+describe('parseWebAddress', () => {
+  it('takes what was typed as an address, never a search', () => {
+    expect(parseWebAddress('bar2.example')).toBe('https://bar2.example/');
+    expect(parseWebAddress('  example.com/a?b=1 ')).toBe('https://example.com/a?b=1');
+    expect(parseWebAddress('http://site.test')).toBe('http://site.test/');
+    expect(parseWebAddress('localhost:8080/x')).toBe('https://localhost:8080/x');
+  });
+  it('rejects anything that is not a web address', () => {
+    for (const bad of ['', 'hello world', 'word', 'javascript:alert(1)', 'file:///etc/passwd', 'min://passwords/', 'data:text/html,x']) {
+      expect(parseWebAddress(bad)).toBeNull();
+    }
   });
 });

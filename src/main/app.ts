@@ -17,7 +17,7 @@ import { join } from 'node:path';
 import { BarItem, CommandResult, Ipc, Phase, PopupData, Rect, SavePrompt, SetupDirResult, TabState, UiState } from '../shared/ipc';
 import { generatePassword } from '../shared/password';
 import { siteOf } from '../shared/privacy';
-import { originOf, searchUrl } from '../shared/url';
+import { originOf, parseWebAddress, searchUrl } from '../shared/url';
 import { pageMenu } from './page-menu';
 import { AdBlocker } from './adblock';
 import { BookmarkPopup } from './bookmark-popup';
@@ -343,6 +343,8 @@ export class BrowserApp {
         return this.openBookmark(num(0), args[1] === true);
       case 'folderMenu':
         return this.folderMenu(num(0), num(1), num(2));
+      case 'barMenu':
+        return this.barMenu(args[0] === null ? null : num(0), num(1), num(2), rect(args[3]));
       case 'savePrompt':
         return this.answerSavePrompt(str(0));
       case 'openPage':
@@ -806,23 +808,34 @@ export class BrowserApp {
       }
       switch (name) {
         case 'data': {
+          // A folder can't be moved into itself or one of its own folders.
+          const inside = b.type === 'folder' ? new Set([id, ...bookmarks.descendantIds(id)]) : new Set<number>();
           const data: PopupData = {
             isNew: popup.isNew,
+            kind: b.type,
             bookmark: { id, title: b.title, url: b.url ?? '', description: b.description, parentId: b.parent_id ?? BAR_ID },
-            folders: bookmarks.folderList(),
+            folders: bookmarks.folderList().filter((f) => !inside.has(f.id)),
           };
           return data;
         }
         case 'save': {
-          const [title, folder, description] = args;
+          const [title, folder, description, url] = args;
           if (typeof title !== 'string' || typeof folder !== 'number' || typeof description !== 'string') throw new Error('bad argument');
           if (title.length > 500 || description.length > 1000) throw new Error('bad argument');
-          bookmarks.update(id, { title, description });
+          if (b.type === 'folder') {
+            bookmarks.update(id, { title: title.trim() || '新建文件夹' });
+          } else {
+            // Only web addresses; anything else keeps the old address.
+            const address = typeof url === 'string' ? parseWebAddress(url) : null;
+            bookmarks.update(id, { title, description, ...(address ? { url: address } : {}) });
+          }
           if (folder !== b.parent_id && bookmarks.get(folder)?.type === 'folder') bookmarks.move(id, folder, 1_000_000);
           this.config?.set({ lastBookmarkFolder: folder });
           break;
         }
         case 'remove':
+          // A folder with things in it is deleted from the bar's menu, which asks first.
+          if (b.type === 'folder' && bookmarks.descendantIds(id).length > 0) throw new Error('forbidden');
           bookmarks.remove(id);
           break;
         case 'manage':
@@ -849,6 +862,77 @@ export class BrowserApp {
     if (!/^https?:/.test(url) || !this.tabs) return;
     if (newTab) this.tabs.create(url, { transition });
     else this.tabs.load(url, transition);
+  }
+
+  /** Right-click on the bookmarks bar: on a bookmark (`id`) or on its empty part (null). */
+  private barMenu(id: number | null, x: number, y: number, anchor: Rect): void {
+    const bookmarks = this.services?.bookmarks;
+    if (!bookmarks || !this.win) return;
+    const bar = bookmarks.children(BAR_ID);
+    const item = id === null ? undefined : bar.find((b) => b.id === id);
+    // New things go right after the bookmark that was clicked, or at the end.
+    const index = item ? bar.indexOf(item) + 1 : bar.length;
+    const page = this.activeWebUrl();
+    const items: MenuItemConstructorOptions[] = [];
+    if (item?.type === 'link') {
+      items.push(
+        { label: '打开', click: () => this.openBookmark(item.id, false) },
+        { label: '在新标签页中打开', click: () => this.openBookmark(item.id, true) },
+        { type: 'separator' },
+      );
+    }
+    if (item) {
+      items.push(
+        { label: item.type === 'folder' ? '重命名…' : '编辑…', click: () => this.popup?.show(item.id, false, anchor) },
+        { label: '删除', click: () => void this.removeBarItem(item.id) },
+        { type: 'separator' },
+      );
+    }
+    items.push(
+      { label: '收藏当前网页', enabled: !!page, click: () => page && this.bookmarkDrop(page.url, null, index, anchor) },
+      { label: '新建文件夹…', click: () => this.newBarFolder(index, anchor) },
+      { type: 'separator' },
+      { label: '管理收藏夹', click: () => this.openPage('bookmarks') },
+      {
+        label: '隐藏收藏夹栏',
+        click: () => {
+          this.config?.set({ showBookmarksBar: false });
+          this.emit();
+        },
+      },
+    );
+    Menu.buildFromTemplate(items).popup({ window: this.win, x, y });
+  }
+
+  /** A new folder on the bar, with the bubble open to name it. */
+  private newBarFolder(index: number, anchor: Rect): void {
+    const bookmarks = this.services?.bookmarks;
+    if (!bookmarks) return;
+    const id = bookmarks.addFolder(BAR_ID, '新建文件夹');
+    bookmarks.move(id, BAR_ID, index);
+    this.emit();
+    this.popup?.show(id, true, anchor);
+  }
+
+  /** Deleting a folder that still holds bookmarks asks first. */
+  private async removeBarItem(id: number): Promise<void> {
+    const bookmarks = this.services?.bookmarks;
+    const b = bookmarks?.get(id);
+    if (!bookmarks || !b || !this.win) return;
+    const inside = b.type === 'folder' ? bookmarks.descendantIds(id).length : 0;
+    if (inside > 0) {
+      const res = await dialog.showMessageBox(this.win, {
+        type: 'warning',
+        buttons: ['删除', '取消'],
+        defaultId: 1,
+        cancelId: 1,
+        message: `删除文件夹“${b.title}”？`,
+        detail: `里面的 ${inside} 项也会一起删除，无法撤销。`,
+      });
+      if (res.response !== 0) return;
+    }
+    bookmarks.remove(id);
+    this.emit();
   }
 
   private folderMenu(id: number, x: number, y: number): void {

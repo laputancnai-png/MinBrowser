@@ -244,7 +244,7 @@ export class BookmarkService {
     return counts;
   }
 
-  private descendantIds(id: number): number[] {
+  descendantIds(id: number): number[] {
     return this.store
       .all<{ id: number }>(
         `WITH RECURSIVE d(id) AS (SELECT id FROM bookmarks WHERE parent_id = ?
