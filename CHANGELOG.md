@@ -11,6 +11,10 @@ npm run version:major -- "这次改了什么"    # 大改版
 
 <!-- 新版本写在这一行下面 -->
 
+## v1.6 · 2026-11-03
+
+- Linux 窗口自带最小化/最大化/关闭按钮（修复 Wayland 下没有标题栏无法关闭）；F5 刷新，Ctrl+F5/Shift+F5 强制刷新
+
 ## v1.5 · 2026-11-02
 
 - 收藏夹导出：导出为通用的 bookmarks.html（Chrome/Firefox/Safari/Edge 都能导入），保留文件夹、收藏夹栏和描述

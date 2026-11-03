@@ -73,6 +73,8 @@ export interface UiState {
   savePrompt: SavePrompt | null;
   /** Two tabs shown at once; the active tab is the pane with focus. */
   split: { orientation: 'horizontal' | 'vertical'; ratio: number; panes: [number, number] } | null;
+  /** The window fills the screen (Linux draws its own maximize/restore button). */
+  maximized: boolean;
 }
 
 export interface SetupDirResult {

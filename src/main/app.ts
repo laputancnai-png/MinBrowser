@@ -132,6 +132,9 @@ export class BrowserApp {
       title: 'MinBrowser',
       backgroundColor: nativeTheme.shouldUseDarkColors ? '#262624' : '#FAF9F5',
       titleBarStyle: isMac ? 'hiddenInset' : 'default',
+      // On Linux the browser draws its own title bar buttons, like Chrome does: under
+      // Wayland (GNOME's default) a framed Electron window gets no title bar at all.
+      frame: isMac || process.platform !== 'linux',
       trafficLightPosition: isMac ? { x: 14, y: 13 } : undefined,
       autoHideMenuBar: !isMac,
       show: false,
@@ -160,6 +163,13 @@ export class BrowserApp {
     win.on('close', () => this.saveSession());
     win.on('closed', () => {
       this.win = null;
+    });
+    for (const event of ['maximize', 'unmaximize', 'enter-full-screen', 'leave-full-screen'] as const) {
+      win.on(event as 'maximize', () => this.emit());
+    }
+    // F5 reloads the page even while the address bar or tab strip has the focus.
+    win.webContents.on('before-input-event', (event, input) => {
+      if (this.phase === 'unlocked' && this.tabs?.handleReloadKey(input)) event.preventDefault();
     });
     win.loadURL(`${UI_URL}index.html`);
   }
@@ -206,6 +216,7 @@ export class BrowserApp {
     }
     const p = this.pendingSave;
     return {
+      maximized: this.win?.isMaximized() ?? false,
       phase: this.phase,
       dataDir: this.dataDir,
       tabs,
@@ -255,6 +266,17 @@ export class BrowserApp {
         if (this.phase === 'unlocked') return;
         this.phase = 'setup';
         this.emit();
+        return;
+      // Title bar buttons (Linux): they work on the setup and lock screens too.
+      case 'window.minimize':
+        this.win?.minimize();
+        return;
+      case 'window.toggleMaximize':
+        if (this.win?.isMaximized()) this.win.unmaximize();
+        else this.win?.maximize();
+        return;
+      case 'window.close':
+        this.win?.close();
         return;
     }
 

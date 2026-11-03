@@ -164,6 +164,23 @@ async function firstRun() {
   await ui.waitForSelector('#setup:not([hidden])');
   check('first run shows setup', true);
 
+  // Linux windows have no system title bar: the browser draws its own buttons, on every screen.
+  if (process.platform === 'linux') {
+    check('window has minimize / maximize / close buttons', await ui.isVisible('#win-close') && await ui.isVisible('#win-minimize') && await ui.isVisible('#win-maximize'));
+    await ui.screenshot({ path: path.join(ROOT, '.screens', 'window-controls-setup.png') }).catch(() => {});
+    await app.evaluate(({ BrowserWindow }) => {
+      const w = BrowserWindow.getAllWindows()[0];
+      globalThis.__calls = [];
+      w.minimize = () => globalThis.__calls.push('minimize');
+      w.maximize = () => globalThis.__calls.push('maximize');
+    });
+    await ui.click('#win-minimize');
+    await ui.click('#win-maximize');
+    await wait(200);
+    const calls = await app.evaluate(() => globalThis.__calls);
+    check('title bar buttons minimize and maximize the window', calls.join(',') === 'minimize,maximize', calls.join(','));
+  }
+
   await mockDialog(DATA);
   await ui.click('#setup-choose');
   await ui.waitForSelector('#setup-form:not([hidden])');
@@ -590,7 +607,7 @@ async function splitView() {
 }
 
 async function contextMenu() {
-  const { app, ui, cmd, captureMenus, go } = await launch();
+  const { app, ui, cmd, inTab, captureMenus, go } = await launch();
   await unlockWith(ui, PW2);
   await captureMenus();
   await go(`${SITE}/links`);
@@ -652,7 +669,44 @@ async function contextMenu() {
   });
   await wait(1200);
   check('middle-click opens a link in a new tab', (await tabs()).length === before + 1);
-  await app.close();
+
+  // F5 reloads, wherever the keyboard focus is. Keys are sent as native input
+  // events (Playwright's own key presses skip the browser's shortcut handling).
+  const marked = () => inTab('/links', 'window.__mark === 1');
+  const press = (where, key, modifiers = []) =>
+    app.evaluate(({ BrowserWindow, webContents }, [where, key, modifiers]) => {
+      const w = where === 'ui' ? BrowserWindow.getAllWindows()[0].webContents : webContents.getAllWebContents().find((w) => w.getURL().endsWith('/links'));
+      w.focus();
+      w.sendInputEvent({ type: 'keyDown', keyCode: key, modifiers });
+      w.sendInputEvent({ type: 'keyUp', keyCode: key, modifiers });
+    }, [where, key, modifiers]);
+  await ui.click('.tab:has-text("Links Page")');
+  await wait(300);
+  await inTab('/links', 'window.__mark = 1');
+  await press('page', 'F5');
+  await wait(1200);
+  check('F5 in the page reloads it', (await marked()) === false);
+  await inTab('/links', 'window.__mark = 1');
+  await ui.click('#address');
+  await press('ui', 'F5');
+  await wait(1200);
+  check('F5 in the address bar reloads the page', (await marked()) === false);
+  await inTab('/links', 'window.__mark = 1');
+  await press('page', 'F5', ['control']);
+  await wait(1200);
+  check('Ctrl+F5 reloads the page', (await marked()) === false);
+  await inTab('/links', 'window.__mark = 1');
+  await press('page', 'F6');
+  await wait(800);
+  check('other keys do not reload', (await marked()) === true);
+  await ui.screenshot({ path: path.join(ROOT, '.screens', 'window-controls-browser.png') }).catch(() => {});
+  if (process.platform === 'linux') {
+    const closed = new Promise((r) => app.process().once('exit', () => r(true)));
+    await ui.click('#win-close');
+    check('the close button quits the browser', await Promise.race([closed, wait(8000).then(() => false)]));
+  } else {
+    await app.close();
+  }
 }
 
 async function securityChecks() {

@@ -28,6 +28,9 @@ const ICONS = {
   folder: '<path d="M2 4.5c0-.6.4-1 1-1h3.2l1.5 1.5H13c.6 0 1 .4 1 1v6c0 .6-.4 1-1 1H3c-.6 0-1-.4-1-1z"/>',
   link: '<circle cx="8" cy="8" r="5.5"/><path d="M2.5 8h11M8 2.5c1.6 1.6 2.3 3.4 2.3 5.5S9.6 11.9 8 13.5M8 2.5C6.4 4.1 5.7 5.9 5.7 8s.7 3.9 2.3 5.5"/>',
   pause: '<path d="M5.5 3.5v9M10.5 3.5v9"/>',
+  minimize: '<path d="M3.5 8.5h9"/>',
+  maximize: '<rect x="3.5" y="3.5" width="9" height="9" rx="1"/>',
+  restore: '<rect x="3.5" y="5.5" width="7" height="7" rx="1"/><path d="M5.5 5.5V4.5a1 1 0 0 1 1-1h5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-1"/>',
 };
 
 function svg(name: keyof typeof ICONS): string {
@@ -55,6 +58,27 @@ const bar = $('bookmarks-bar');
 const infobar = $('infobar');
 
 if (api.platform === 'darwin') document.body.classList.add('mac');
+
+// Linux: the window has no system title bar, so the browser draws minimize/maximize/close.
+const windowControls = $('window-controls');
+const maximizeButton = $<HTMLButtonElement>('win-maximize');
+if (api.platform === 'linux') {
+  document.body.classList.add('frameless');
+  windowControls.hidden = false;
+  $('win-minimize').innerHTML = svg('minimize');
+  maximizeButton.innerHTML = svg('maximize');
+  $('win-close').innerHTML = svg('close');
+  $('win-minimize').addEventListener('click', () => send('window.minimize'));
+  maximizeButton.addEventListener('click', () => send('window.toggleMaximize'));
+  $('win-close').addEventListener('click', () => send('window.close'));
+}
+function renderWindowControls(maximized: boolean): void {
+  if (windowControls.hidden || maximizeButton.dataset.max === String(maximized)) return;
+  maximizeButton.dataset.max = String(maximized);
+  maximizeButton.innerHTML = svg(maximized ? 'restore' : 'maximize');
+  maximizeButton.title = maximized ? '还原' : '最大化';
+  maximizeButton.setAttribute('aria-label', maximizeButton.title);
+}
 buttons.back.innerHTML = svg('back');
 buttons.forward.innerHTML = svg('forward');
 buttons.reload.innerHTML = svg('reload');
@@ -484,6 +508,7 @@ api.onState((next) => {
   const phaseChanged = next.phase !== state?.phase;
   state = next;
   if (switched) editing = false;
+  renderWindowControls(next.maximized);
   render();
   if (phaseChanged && next.phase === 'unlocked') send('chromeHeight', chrome.getBoundingClientRect().height);
 });

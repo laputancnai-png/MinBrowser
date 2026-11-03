@@ -404,12 +404,25 @@ export class TabManager {
     }
   }
 
-  reload(): void {
+  /** `ignoreCache` fetches everything again instead of using cached files. */
+  reload(ignoreCache = false): void {
     const tab = this.active();
     if (!tab) return;
     tab.pendingTransition = 'reload';
     if (tab.failedUrl) tab.view.webContents.loadURL(tab.failedUrl);
+    else if (ignoreCache) tab.view.webContents.reloadIgnoringCache();
     else tab.view.webContents.reload();
+  }
+
+  /**
+   * F5 reloads, Ctrl/Cmd+F5 or Shift+F5 reloads without the cache. Handled for
+   * every page and the browser UI, so it works wherever the keyboard focus is.
+   * Returns true when the key was used.
+   */
+  handleReloadKey(input: Electron.Input): boolean {
+    if (input.type !== 'keyDown' || input.key !== 'F5' || input.alt) return false;
+    if (!input.isAutoRepeat) this.reload(input.control || input.meta || input.shift);
+    return true;
   }
 
   stop(): void {
@@ -606,6 +619,9 @@ export class TabManager {
     });
 
     wc.on('context-menu', (_e, params) => this.hooks.contextMenu?.(tab, params));
+    wc.on('before-input-event', (event, input) => {
+      if (this.handleReloadKey(input)) event.preventDefault();
+    });
 
     // Popups and target=_blank links open as a new tab next to this one.
     wc.setWindowOpenHandler(({ url, disposition }) => {
