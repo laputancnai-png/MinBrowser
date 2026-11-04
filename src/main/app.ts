@@ -6,21 +6,20 @@ import {
   dialog,
   ipcMain,
   Menu,
-  net,
   MenuItemConstructorOptions,
   nativeTheme,
   powerMonitor,
   session,
   Session,
 } from 'electron';
-import { accessSync, chmodSync, constants, existsSync, mkdirSync, statSync } from 'node:fs';
+import { accessSync, chmodSync, constants, existsSync, mkdirSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { BarItem, CommandResult, Ipc, Phase, PopupData, Rect, SavePrompt, SetupDirResult, TabState, UiState } from '../shared/ipc';
 import { generatePassword } from '../shared/password';
 import { siteOf } from '../shared/privacy';
 import { originOf, parseWebAddress, searchUrl } from '../shared/url';
 import { pageMenu } from './page-menu';
-import { TranslationFiles } from './translation-models';
+import { loadBundled } from './translation-models';
 import { EngineTranslator, FakeTranslator, Translator } from './translator';
 import { AdBlocker } from './adblock';
 import { BookmarkPopup } from './bookmark-popup';
@@ -83,7 +82,6 @@ export class BrowserApp {
   private recorder: HistoryRecorder;
   /** English → Chinese page translation (engine started on first use). */
   private translator: Translator | null = null;
-  private translationDownload: number | null = null;
   private pendingSave: PendingSave | null = null;
   private emitQueued = false;
   private quitting = false;
@@ -224,7 +222,6 @@ export class BrowserApp {
     const p = this.pendingSave;
     return {
       maximized: this.win?.isMaximized() ?? false,
-      translationDownload: this.translationDownload,
       phase: this.phase,
       dataDir: this.dataDir,
       tabs,
@@ -481,6 +478,8 @@ export class BrowserApp {
     // Cookies and site data live here: readable by this user only.
     mkdirSync(chromiumDir, { recursive: true, mode: 0o700 });
     chmodSync(chromiumDir, 0o700);
+    // v1.8 tried to download the translation model here; it now ships with the app.
+    rmSync(join(dir, 'translations'), { recursive: true, force: true });
     const web = session.fromPath(chromiumDir);
     this.web = web;
     this.adblock = new AdBlocker(join(dir, 'adblock.bin'));
@@ -1017,38 +1016,19 @@ export class BrowserApp {
 
   // ---------------------------------------------------------------- translation
 
-  /**
-   * Development builds only: MINBROWSER_FAKE_TRANSLATOR=1 "translates" without
-   * any download (UI tests); MINBROWSER_TRANSLATIONS_SERVER points the model
-   * download at a local copy of Mozilla's servers.
-   */
+  /** Development builds only: MINBROWSER_FAKE_TRANSLATOR=1 "translates" without the engine (UI tests). */
   private get fakeTranslation(): boolean {
     return !app.isPackaged && process.env.MINBROWSER_FAKE_TRANSLATOR === '1';
   }
 
-  private translationFiles(): TranslationFiles | null {
-    if (!this.dataDir) return null;
-    const server = !app.isPackaged ? process.env.MINBROWSER_TRANSLATIONS_SERVER : undefined;
-    return new TranslationFiles(
-      join(this.dataDir, 'translations'),
-      (url) => net.fetch(url, { credentials: 'omit', cache: 'no-store' }),
-      server ? { settings: `${server}/v1/buckets/main/collections`, attachments: `${server}/attachments/` } : undefined,
-    );
-  }
-
   private getTranslator(): Translator {
-    this.translator ??= this.fakeTranslation
-      ? new FakeTranslator()
-      : new EngineTranslator(() => {
-          const files = this.translationFiles();
-          if (!files) throw new Error('浏览器已锁定');
-          return files.load();
-        });
+    // The engine and model ship with MinBrowser; nothing is downloaded.
+    this.translator ??= this.fakeTranslation ? new FakeTranslator() : new EngineTranslator(() => loadBundled());
     return this.translator;
   }
 
   /** The 译 button: translate the page, or show the original again. */
-  private async toggleTranslate(): Promise<void> {
+  private toggleTranslate(): void {
     const tab = this.tabs?.active();
     if (!tab || !this.win) return;
     const wc = tab.view.webContents;
@@ -1059,37 +1039,7 @@ export class BrowserApp {
       this.emit();
       return;
     }
-    if (this.translationDownload !== null) return;
-    const files = this.translationFiles();
-    if (!this.fakeTranslation && files && !files.installed) {
-      const answer = await dialog.showMessageBox(this.win, {
-        type: 'question',
-        buttons: ['下载', '取消'],
-        defaultId: 0,
-        cancelId: 1,
-        message: '第一次使用翻译，需要先下载英译中模型',
-        detail:
-          '会从 Mozilla（Firefox 的开发方）下载约 37MB 的翻译引擎和模型，只需下载这一次。\n\n' +
-          '翻译完全在你的电脑上进行，网页内容不会发送到任何地方。',
-      });
-      if (answer.response !== 0) return;
-      this.translationDownload = 0;
-      this.emit();
-      try {
-        await files.download((p) => {
-          this.translationDownload = p;
-          this.emit();
-        });
-      } catch (err) {
-        this.translationDownload = null;
-        this.emit();
-        void dialog.showMessageBox(this.win, { type: 'error', message: '翻译模型下载失败', detail: err instanceof Error ? err.message : String(err) });
-        return;
-      }
-      this.translationDownload = null;
-    }
-    // The tab may have been closed or navigated while downloading.
-    if (this.phase !== 'unlocked' || !this.tabs?.get(tab.id) || wc.isDestroyed()) return;
+    if (this.phase !== 'unlocked') return;
     tab.translation = 'busy';
     this.emit();
     wc.send(Ipc.TranslateStart);

@@ -75,6 +75,9 @@ cpSync('src/translator/index.html', 'dist/translator/index.html');
 // Mozilla's engine loader, unchanged (MPL-2.0, see vendor/bergamot/README.md).
 cpSync('vendor/bergamot/bergamot-translator.js', 'dist/translator/bergamot-translator.js');
 cpSync('vendor/bergamot/LICENSE', 'dist/translator/LICENSE-bergamot.txt');
+// The engine and English → Chinese model (read by the main process, checked against pinned hashes).
+cpSync('vendor/bergamot/models', 'dist/translation-models', { recursive: true });
+cpSync('vendor/bergamot/LICENSE', 'dist/translation-models/LICENSE.txt');
 cpSync('src/renderer/styles.css', 'dist/renderer/styles.css');
 cpSync('src/renderer/bookmark-popup.html', 'dist/renderer/bookmark-popup.html');
 cpSync('src/renderer/bookmark-popup.css', 'dist/renderer/bookmark-popup.css');

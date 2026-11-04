@@ -22,5 +22,6 @@
 ## 翻译功能的测试
 
 - 普通端到端测试用假的翻译引擎（`MINBROWSER_FAKE_TRANSLATOR=1`，只在开发版生效）。
-- 真实引擎测试：准备一个目录，内含 `changesets/translations-wasm-v2.json`、`changesets/translations-models-v2.json`（Mozilla Remote Settings 的 changeset）和 `attachments/<location>`（对应的 .zst 文件），然后 `MINBROWSER_E2E_MODELS=<目录> npm run test:e2e`。
-- 更新引擎：见 `vendor/bergamot/README.md`，加载文件和 WASM 必须配套，`src/main/translation-models.ts` 里锁定的 WASM 哈希要一起改。
+- 真实引擎测试每次 `npm run test:e2e` 都会跑（引擎和模型打包在 `vendor/bergamot/models`）。
+- 模型和引擎随程序打包，不在运行时下载（Mozilla 的模型服务器拒绝 Chromium 浏览器，不要用改 User-Agent 的方式绕过）。更新方法见 `vendor/bergamot/README.md`，`src/main/translation-models.ts` 里的哈希要一起改。
+- 涉及外部服务器的功能，除了本地模拟测试，还要在真实环境里实际请求一次再交付（v1.8 的 406 教训）。

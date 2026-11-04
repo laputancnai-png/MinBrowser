@@ -65,7 +65,6 @@ session.db.enc        当前打开的标签页，用于崩溃或重启后恢复
 config.json           非敏感设置
 adblock.bin           编译好的公开拦截规则（不含个人数据）
 chromium/             Chromium 会话数据（Cookie、localStorage 等）
-translations/         英译中翻译引擎和模型（公开文件，zstd 压缩，首次翻译时下载）
 ```
 
 - 主密码 → Argon2id（64MB 内存、3 轮，用 hash-wasm）→ KEK → 解开随机 256 位 DEK
@@ -181,9 +180,9 @@ session_tabs(position, url, title, active)
 
 ## 12. 翻译（英译中）
 
-- 引擎：Mozilla 的 Bergamot（Firefox 内置翻译用的同一个）。JS 加载文件原样随程序打包（`vendor/bergamot`，MPL-2.0，来源见其 README）；WASM 和模型首次使用时从 Mozilla Remote Settings 下载（`translations-wasm-v2`、`translations-models-v2`）
-- 只接受固定版本的 WASM（引擎 4.0，按 SHA-256 锁定，因为它必须和加载文件配套）；模型取最新的英译简体中文 3.x 正式版
-- 每个文件下载后核对压缩包和解压后内容两个 SHA-256，存为 `translations/*.zst`（权限 600，manifest 最后写入）；每次加载再核对一次
+- 引擎：Mozilla 的 Bergamot（Firefox 内置翻译用的同一个）。JS 加载文件、WASM（引擎 4.0）和英译简体中文模型（3.0，base-memory）全部原样随程序打包在 `vendor/bergamot`（MPL-2.0，来源和更新方法见其 README），约 37MB
+- 不在运行时下载：Mozilla 的模型文件服务器（firefox-settings-attachments.cdn.mozilla.net）拒绝 Chromium 浏览器（HTTP 406，v1.8 因此下载失败）。打包后翻译完全不联网
+- 每个文件的压缩包和解压后内容两个 SHA-256（取自 Mozilla Remote Settings 记录）固定写在 `src/main/translation-models.ts`，每次加载都核对，被替换的文件会被拒绝
 - 引擎运行在一个隐藏的沙箱页面（`app://translator/`）的 Worker 里：独立的内存会话、所有网络请求一律拦截、CSP 只允许自身脚本和 WebAssembly（不允许 eval）、拒绝一切权限；10 分钟不用或锁定时关闭以释放内存
 - 网页一侧在标签页的隔离环境中运行：只修改已有文本节点的文字，不插入 HTML、不改结构；保存原文用于“显示原文”，只恢复仍是译文的节点
 - 这个英译中模型无法在 HTML 模式下正确放置标签（测试中链接、代码文字会丢失），所以全部按纯文本翻译：只含文字和简单格式的段落整段翻译；含链接、代码等的段落逐个文本节点翻译，保证链接可用、内容不丢

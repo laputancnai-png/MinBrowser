@@ -59,21 +59,6 @@ function startServer() {
         ),
       );
     if (url.pathname === '/chinese') return html(page('中文网页', '<p>这是一个中文网页，介绍隐私浏览器。Home About Contact</p><p>内容都是中文的，不需要翻译。我们重视你的隐私和数据安全。</p>'));
-    // A stand-in for Mozilla's model servers (real-engine test only).
-    const models = process.env.MINBROWSER_E2E_MODELS;
-    if (models && url.pathname.startsWith('/v1/buckets/main/collections/')) {
-      const name = url.pathname.split('/')[5];
-      const file = path.join(models, 'changesets', `${name}.json`);
-      if (!fs.existsSync(file)) return res.writeHead(404).end();
-      res.writeHead(200, { 'content-type': 'application/json' });
-      return res.end(fs.readFileSync(file));
-    }
-    if (models && url.pathname.startsWith('/attachments/')) {
-      const file = path.join(models, 'attachments', path.normalize(url.pathname.slice('/attachments/'.length)));
-      if (!file.startsWith(path.join(models, 'attachments')) || !fs.existsSync(file)) return res.writeHead(404).end();
-      res.writeHead(200, { 'content-type': 'application/zstd' });
-      return res.end(fs.readFileSync(file));
-    }
     if (url.pathname === '/links')
       return html(page('Links Page', '<p><a id="l" href="/page/41" style="display:block;width:200px;height:40px">Go to page 41</a></p><p><input id="f" style="width:200px;height:30px"></p><p id="t">plain text here</p>'));
     if (url.pathname === '/login2') return html(page('Two Step Login', '<form action="/login2/pw" method="get"><input type="email" name="email" id="e" autocomplete="username" placeholder="邮箱"><button id="next">下一步</button></form>'));
@@ -873,25 +858,29 @@ async function translation() {
   await app.close();
 }
 
-/** The real engine and model, with a local stand-in for Mozilla's servers (MINBROWSER_E2E_MODELS). */
+/** The real engine and the English → Chinese model that ship with MinBrowser. */
 async function realTranslation() {
-  const { app, ui, go, inTab } = await launch({ MINBROWSER_TRANSLATIONS_SERVER: `http://${SITE}` });
+  // A folder left behind by v1.8's failed model download is cleaned up.
+  fs.mkdirSync(path.join(DATA, 'translations'), { recursive: true });
+  fs.writeFileSync(path.join(DATA, 'translations', 'engine.wasm.zst.part'), 'partial');
+  const { app, ui, go, inTab } = await launch();
   await unlockWith(ui, PW2);
+  check('leftover translation download folder is removed', !fs.existsSync(path.join(DATA, 'translations')));
   await app.evaluate(({ dialog }) => {
     globalThis.__asked = 0;
     dialog.showMessageBox = async () => {
       globalThis.__asked++;
-      return { response: 0 };
+      return { response: 1 };
     };
   });
   await go(`${SITE}/english`);
   await ui.click('#translate');
   let done = false;
-  for (let i = 0; i < 120 && !done; i++) {
+  for (let i = 0; i < 60 && !done; i++) {
     await wait(500);
     done = (await ui.getAttribute('#translate', 'data-state')) === 'on';
   }
-  check('first translation asks before downloading the model', (await app.evaluate(() => globalThis.__asked)) === 1);
+  check('translation needs no download and asks nothing', (await app.evaluate(() => globalThis.__asked)) === 0);
   const zh = await inTab('/english', "document.getElementById('whole').textContent");
   check('the real engine translates English to Chinese', done && /[\u4e00-\u9fff]{4,}/.test(zh), zh);
   // A picture of the translated page, for looking at by eye.
@@ -900,9 +889,6 @@ async function realTranslation() {
     return (await w.capturePage()).toPNG().toString('base64');
   }).catch(() => null);
   if (png) fs.writeFileSync(path.join(ROOT, '.screens', 'translated-page.png'), Buffer.from(png, 'base64'));
-  const dir = path.join(DATA, 'translations');
-  const files = fs.existsSync(dir) ? fs.readdirSync(dir) : [];
-  check('model files are kept, private, in the data folder', files.includes('manifest.json') && files.includes('model.enzh.zst') && files.every((f) => (fs.statSync(path.join(dir, f)).mode & 0o777) === 0o600), files.join(','));
   const blocked = await app.evaluate(async ({ webContents }, site) => {
     const engine = webContents.getAllWebContents().find((w) => w.getURL().startsWith('app://translator/'));
     if (!engine) return 'no engine page';
@@ -946,7 +932,7 @@ async function securityChecks() {
     await splitView();
     await contextMenu();
     await translation();
-    if (process.env.MINBROWSER_E2E_MODELS) await realTranslation();
+    await realTranslation();
     await securityChecks();
   } finally {
     server.close();

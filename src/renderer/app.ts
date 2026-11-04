@@ -456,26 +456,18 @@ function renderToolbar(): void {
 
 function renderTranslate(tab: TabState | undefined): void {
   const b = buttons.translate;
-  const download = state!.translationDownload;
   const t = tab?.translation ?? 'off';
-  let label = '翻译';
-  let title = '把这个英文网页翻译成中文（在你的电脑上翻译，网页内容不会发出去）';
-  if (download !== null) {
-    label = `下载模型 ${Math.round(download * 100)}%`;
-    title = '正在从 Mozilla 下载英译中模型（只需下载一次）';
-  } else if (t === 'busy') {
-    label = '翻译中…';
-    title = '正在翻译，点击显示原文';
-  } else if (t === 'on') {
-    label = '显示原文';
-    title = '已翻译成中文，点击显示原文';
-  } else if (t === 'chinese') {
-    label = '已是中文';
-    title = '这个网页看起来已经是中文，不需要翻译';
-  }
-  b.disabled = !tab?.isWeb || download !== null;
+  const [label, title] =
+    t === 'busy'
+      ? ['翻译中…', '正在翻译，点击显示原文']
+      : t === 'on'
+        ? ['显示原文', '已翻译成中文，点击显示原文']
+        : t === 'chinese'
+          ? ['已是中文', '这个网页看起来已经是中文，不需要翻译']
+          : ['翻译', '把这个英文网页翻译成中文（在你的电脑上翻译，不联网）'];
+  b.disabled = !tab?.isWeb;
   b.classList.toggle('active', t === 'busy' || t === 'on');
-  b.dataset.state = download !== null ? 'download' : t;
+  b.dataset.state = t;
   b.title = title;
   const html = `${svg('translate')}<span>${label}</span>`;
   if (b.innerHTML !== html) b.innerHTML = html;

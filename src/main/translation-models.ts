@@ -1,57 +1,61 @@
 import { createHash } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { zstdDecompressSync } from 'node:zlib';
 
 /**
  * English → Simplified Chinese translation files: Mozilla's Bergamot engine
- * (WebAssembly) and the language model Firefox uses. Downloaded once from
- * Mozilla's Remote Settings, checked against the published SHA-256 hashes
- * (compressed and decompressed), and kept zstd-compressed in the data folder.
- * The files are public; nothing about the user is sent to fetch them.
+ * (WebAssembly) and the language model Firefox uses, shipped with MinBrowser
+ * (vendor/bergamot/models, MPL-2.0, unchanged). Translation never needs the
+ * network. Mozilla's file server refuses Chromium-based browsers, so they are
+ * not downloaded at run time.
+ *
+ * Every file is pinned by the SHA-256 Mozilla publishes for it (Remote
+ * Settings collections translations-wasm-v2 / translations-models-v2), both
+ * compressed and decompressed, and checked each time it is loaded.
+ * To update: node scripts/update-translation-model.mjs (see vendor/bergamot/README.md).
  */
 
-export const REMOTE_SETTINGS = 'https://firefox.settings.services.mozilla.com/v1/buckets/main/collections';
-export const ATTACHMENTS = 'https://firefox-settings-attachments.cdn.mozilla.net/';
+export type ModelFileType = 'model' | 'lex' | 'srcvocab' | 'trgvocab';
 
-/**
- * The engine must match the JavaScript loader bundled in vendor/bergamot, so
- * only this exact build is accepted (record "bergamot-translator" 4.0).
- */
-export const PINNED_ENGINE = {
-  hash: '327fcfc7b7e9d95f6fa0844ebf899cfc05469872ef02d3aef5783182839a6255',
-  decompressedHash: 'f38ef807636a7c994afedaab7ff8ffe0d590d21897f05139f747b80fd7bbe926',
-};
-
-/** Model versions this engine can run (Firefox: LANGUAGE_MODEL_MAJOR_VERSION 3). */
-const MODEL_MAJOR = 3;
-const MODEL_FILE_TYPES = ['model', 'lex', 'srcvocab', 'trgvocab'] as const;
-export type ModelFileType = (typeof MODEL_FILE_TYPES)[number];
-
-export interface RemoteRecord {
-  name: string;
-  version: string;
-  fileType?: string;
-  sourceLanguage?: string;
-  targetLanguage?: string;
-  architecture?: string;
-  filter_expression?: string;
-  decompressedHash?: string;
-  attachment: { hash: string; size: number; location: string };
-}
-
-export interface FileEntry {
+export interface PinnedFile {
   file: string;
   hash: string;
   decompressedHash: string;
-  size: number;
-  location: string;
 }
 
-export interface Manifest {
-  engine: FileEntry;
-  model: { version: string; files: Record<ModelFileType, FileEntry> };
-}
+export const BUNDLED: Record<'engine' | ModelFileType, PinnedFile> = {
+  // translations-wasm-v2: bergamot-translator 4.0 (matches vendor/bergamot/bergamot-translator.js)
+  engine: {
+    file: 'engine.wasm.zst',
+    hash: '327fcfc7b7e9d95f6fa0844ebf899cfc05469872ef02d3aef5783182839a6255',
+    decompressedHash: 'f38ef807636a7c994afedaab7ff8ffe0d590d21897f05139f747b80fd7bbe926',
+  },
+  // translations-models-v2: en → zh-Hans 3.0, base-memory
+  model: {
+    file: 'model.enzh.zst',
+    hash: 'f0c96e546b0af7c1fe84647d450b1eba0b0591c167e1ead135b334e4b54f6e08',
+    decompressedHash: '4e5accc141373565ddc8fa1565bceaa8d0c3482a82cab8131c719ebcc6c2157c',
+  },
+  lex: {
+    file: 'lex.enzh.zst',
+    hash: 'c7e4b2ee202e6cf526d07f9c5a47b759ba32b0b42a5353d3db4ee1ff3bfb5217',
+    decompressedHash: '4a5e5827788060f1d718a8132b69440929387514a045796e9b77f935db68c055',
+  },
+  srcvocab: {
+    file: 'srcvocab.enzh.zst',
+    hash: 'ec495ad8f0c80ba4eae5ac3b9a8e2ccb4a3a7becb1992efcfea5f4653ffdece1',
+    decompressedHash: 'bd9b65504acc6d9726dd281f7defc2adb7c2c22d0688fe2f84697de25197c8c5',
+  },
+  trgvocab: {
+    file: 'trgvocab.enzh.zst',
+    hash: '25c6c984a7556cb6478b9f1748ff68d8fd433c0e7d472bfdbd4d64a2dffa21f1',
+    decompressedHash: 'aded6993c36e440284d11cec3f6b8aef9c0e43188a772d80be342a713adf223d',
+  },
+};
+
+/** Where the build puts the bundled files (dist/translation-models). */
+export const BUNDLED_DIR = join(__dirname, '..', 'translation-models');
 
 export interface LoadedFiles {
   wasm: Buffer;
@@ -60,141 +64,19 @@ export interface LoadedFiles {
 
 export const sha256 = (b: Uint8Array) => createHash('sha256').update(b).digest('hex');
 
-/** The pinned engine build, if Mozilla still publishes it. */
-export function pickEngine(records: RemoteRecord[]): RemoteRecord | null {
-  return records.find((r) => r.name === 'bergamot-translator' && r.attachment?.hash === PINNED_ENGINE.hash) ?? null;
-}
-
-const versionParts = (v: string) => v.split('.').map((n) => Number(n));
-
-/**
- * The newest complete English → Simplified Chinese model of a supported
- * version: released versions only ("3.1", not "3.0a1"), no channel filters.
- */
-export function pickModel(records: RemoteRecord[]): { version: string; files: Record<ModelFileType, RemoteRecord> } | null {
-  const sets = new Map<string, Partial<Record<ModelFileType, RemoteRecord>>>();
-  for (const r of records) {
-    if (r.sourceLanguage !== 'en' || r.targetLanguage !== 'zh-Hans' || r.filter_expression) continue;
-    if (!/^\d+\.\d+$/.test(r.version) || versionParts(r.version)[0] !== MODEL_MAJOR) continue;
-    if (!MODEL_FILE_TYPES.includes(r.fileType as ModelFileType) || !r.decompressedHash) continue;
-    const key = `${r.version}|${r.architecture ?? ''}`;
-    const set = sets.get(key) ?? {};
-    set[r.fileType as ModelFileType] = r;
-    sets.set(key, set);
-  }
-  let best: { version: string; files: Record<ModelFileType, RemoteRecord> } | null = null;
-  for (const [key, set] of sets) {
-    if (!MODEL_FILE_TYPES.every((t) => set[t])) continue;
-    const version = key.split('|')[0];
-    const [a, b] = versionParts(version);
-    if (!best || a > versionParts(best.version)[0] || (a === versionParts(best.version)[0] && b > versionParts(best.version)[1])) {
-      best = { version, files: set as Record<ModelFileType, RemoteRecord> };
-    }
-  }
-  return best;
-}
-
-/** Check a downloaded (compressed) file and what it decompresses to. */
-export function verifiedDecompress(compressed: Uint8Array, entry: Pick<FileEntry, 'hash' | 'decompressedHash'>): Buffer {
-  if (sha256(compressed) !== entry.hash) throw new Error('翻译文件校验失败（下载的文件不完整或被修改）');
+/** Check a compressed file and what it decompresses to against its pinned hashes. */
+export function verifiedDecompress(compressed: Uint8Array, pinned: Pick<PinnedFile, 'hash' | 'decompressedHash'>): Buffer {
+  if (sha256(compressed) !== pinned.hash) throw new Error('翻译文件校验失败（文件被修改或损坏），请重新安装 MinBrowser');
   const raw = zstdDecompressSync(compressed);
-  if (sha256(raw) !== entry.decompressedHash) throw new Error('翻译文件校验失败（解压后内容不符）');
+  if (sha256(raw) !== pinned.decompressedHash) throw new Error('翻译文件校验失败（解压后内容不符），请重新安装 MinBrowser');
   return raw;
 }
 
-export type Fetcher = (url: string) => Promise<Response>;
-
-export class TranslationFiles {
-  constructor(
-    private readonly dir: string,
-    private readonly fetcher: Fetcher,
-    private readonly sources = { settings: REMOTE_SETTINGS, attachments: ATTACHMENTS },
-  ) {}
-
-  private manifestPath(): string {
-    return join(this.dir, 'manifest.json');
-  }
-
-  manifest(): Manifest | null {
-    try {
-      const m = JSON.parse(readFileSync(this.manifestPath(), 'utf8')) as Manifest;
-      const all = [m.engine, ...Object.values(m.model.files)];
-      return all.every((f) => existsSync(join(this.dir, f.file))) ? m : null;
-    } catch {
-      return null;
-    }
-  }
-
-  get installed(): boolean {
-    return this.manifest() !== null;
-  }
-
-  /** Download everything that's missing. `progress` gets 0..1. */
-  async download(progress: (fraction: number) => void): Promise<void> {
-    const json = async (collection: string) => {
-      const res = await this.fetcher(`${this.sources.settings}/${collection}/changeset?_expected=0`);
-      if (!res.ok) throw new Error(`无法获取翻译模型列表（${res.status}）`);
-      return ((await res.json()) as { changes: RemoteRecord[] }).changes;
-    };
-    const engine = pickEngine(await json('translations-wasm-v2'));
-    if (!engine) throw new Error('Mozilla 已不再提供这个版本的翻译引擎，请更新 MinBrowser');
-    const model = pickModel(await json('translations-models-v2'));
-    if (!model) throw new Error('找不到英译中的翻译模型');
-
-    const entry = (r: RemoteRecord, file: string): FileEntry => ({
-      file,
-      hash: r.attachment.hash,
-      decompressedHash: r.decompressedHash ?? '',
-      size: r.attachment.size,
-      location: r.attachment.location,
-    });
-    const manifest: Manifest = {
-      engine: { ...entry(engine, 'engine.wasm.zst'), decompressedHash: PINNED_ENGINE.decompressedHash },
-      model: {
-        version: model.version,
-        files: Object.fromEntries(MODEL_FILE_TYPES.map((t) => [t, entry(model.files[t], `${t}.enzh.zst`)])) as Record<ModelFileType, FileEntry>,
-      },
-    };
-
-    mkdirSync(this.dir, { recursive: true, mode: 0o700 });
-    const files = [manifest.engine, ...MODEL_FILE_TYPES.map((t) => manifest.model.files[t])];
-    const total = files.reduce((n, f) => n + f.size, 0);
-    let done = 0;
-    for (const f of files) {
-      const res = await this.fetcher(this.sources.attachments + f.location);
-      if (!res.ok || !res.body) throw new Error(`下载翻译模型失败（${res.status}）`);
-      const chunks: Uint8Array[] = [];
-      const reader = res.body.getReader();
-      for (;;) {
-        const { done: end, value } = await reader.read();
-        if (end) break;
-        chunks.push(value);
-        done += value.byteLength;
-        progress(Math.min(done / total, 1));
-      }
-      const body = Buffer.concat(chunks);
-      verifiedDecompress(body, f); // check now, so a bad download is never kept
-      const path = join(this.dir, f.file);
-      writeFileSync(`${path}.part`, body, { mode: 0o600 });
-      renameSync(`${path}.part`, path);
-    }
-    // The manifest goes last: files without one are an unfinished download.
-    writeFileSync(this.manifestPath(), JSON.stringify(manifest, null, 2), { mode: 0o600 });
-    chmodSync(this.dir, 0o700);
-  }
-
-  /** Read, decompress and re-check every file. */
-  load(): LoadedFiles {
-    const m = this.manifest();
-    if (!m) throw new Error('翻译模型还没有下载');
-    const read = (f: FileEntry) => verifiedDecompress(readFileSync(join(this.dir, f.file)), f);
-    return {
-      wasm: read(m.engine),
-      model: Object.fromEntries(MODEL_FILE_TYPES.map((t) => [t, read(m.model.files[t])])) as Record<ModelFileType, Buffer>,
-    };
-  }
-
-  remove(): void {
-    rmSync(this.dir, { recursive: true, force: true });
-  }
+/** Read, decompress and check the bundled engine and model. */
+export function loadBundled(dir = BUNDLED_DIR, pinned = BUNDLED): LoadedFiles {
+  const read = (f: PinnedFile) => verifiedDecompress(readFileSync(join(dir, f.file)), f);
+  return {
+    wasm: read(pinned.engine),
+    model: { model: read(pinned.model), lex: read(pinned.lex), srcvocab: read(pinned.srcvocab), trgvocab: read(pinned.trgvocab) },
+  };
 }

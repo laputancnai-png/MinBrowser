@@ -87,8 +87,6 @@ export interface UiState {
   split: { orientation: 'horizontal' | 'vertical'; ratio: number; panes: [number, number] } | null;
   /** The window fills the screen (Linux draws its own maximize/restore button). */
   maximized: boolean;
-  /** Downloading the translation model: 0..1, null when not downloading. */
-  translationDownload: number | null;
 }
 
 export interface SetupDirResult {
