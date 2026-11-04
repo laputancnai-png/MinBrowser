@@ -15,6 +15,7 @@ import { extname, join, normalize, sep } from 'node:path';
 const DIST = join(__dirname, '..');
 const RENDERER_DIR = join(DIST, 'renderer');
 const PAGES_DIR = join(DIST, 'pages');
+const TRANSLATOR_DIR = join(DIST, 'translator');
 
 const TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -37,7 +38,7 @@ export function registerInternalScheme(): void {
 export const UI_URL = 'app://ui/';
 
 /** Resolve `pathname` inside `root`, refusing anything that escapes it. */
-async function serveFile(root: string, pathname: string): Promise<Response> {
+async function serveFile(root: string, pathname: string, extraHeaders: Record<string, string> = {}): Promise<Response> {
   let file: string;
   try {
     file = pathname === '/' || pathname === '' ? 'index.html' : decodeURIComponent(pathname.slice(1));
@@ -48,7 +49,7 @@ async function serveFile(root: string, pathname: string): Promise<Response> {
   if (!path.startsWith(root + sep)) return new Response('Not found', { status: 404 });
   try {
     const body = await readFile(path);
-    return new Response(body, { headers: { 'content-type': TYPES[extname(path)] ?? 'application/octet-stream' } });
+    return new Response(body, { headers: { 'content-type': TYPES[extname(path)] ?? 'application/octet-stream', ...extraHeaders } });
   } catch {
     return new Response('Not found', { status: 404 });
   }
@@ -69,5 +70,20 @@ export function serveBrowserUi(session: Session): void {
     const url = new URL(request.url);
     if (url.hostname !== 'ui') return new Response('Not found', { status: 404 });
     return serveFile(RENDERER_DIR, url.pathname);
+  });
+}
+
+/**
+ * The translation engine page, only in its own session (see translator.ts).
+ * The policy is sent as a header so it also covers the engine's worker: run
+ * our own scripts and WebAssembly, load nothing else, no eval.
+ */
+export const TRANSLATOR_URL = 'app://translator/';
+export const TRANSLATOR_CSP = "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'";
+export function serveTranslator(session: Session): void {
+  session.protocol.handle('app', (request) => {
+    const url = new URL(request.url);
+    if (url.hostname !== 'translator') return new Response('Not found', { status: 404 });
+    return serveFile(TRANSLATOR_DIR, url.pathname, { 'content-security-policy': TRANSLATOR_CSP });
   });
 }

@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { Ipc } from '../shared/ipc';
+import { startPageTranslator } from './page-translator';
 import { startPasswordAgent } from './password-agent';
 
 // Runs in every tab, in an isolated world the page's own scripts can't reach.
@@ -10,4 +11,5 @@ if (location.protocol === 'min:') {
   });
 } else if ((location.protocol === 'https:' || location.protocol === 'http:') && window.top === window) {
   startPasswordAgent();
+  startPageTranslator();
 }

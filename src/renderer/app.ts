@@ -28,6 +28,7 @@ const ICONS = {
   folder: '<path d="M2 4.5c0-.6.4-1 1-1h3.2l1.5 1.5H13c.6 0 1 .4 1 1v6c0 .6-.4 1-1 1H3c-.6 0-1-.4-1-1z"/>',
   link: '<circle cx="8" cy="8" r="5.5"/><path d="M2.5 8h11M8 2.5c1.6 1.6 2.3 3.4 2.3 5.5S9.6 11.9 8 13.5M8 2.5C6.4 4.1 5.7 5.9 5.7 8s.7 3.9 2.3 5.5"/>',
   pause: '<path d="M5.5 3.5v9M10.5 3.5v9"/>',
+  translate: '<path d="M2.5 4h6M5.5 2.5V4M4 4c.4 2.3 1.9 4.2 4 5.2M7 4c-.4 2.4-2.2 4.6-4.5 5.6M9 13.5l2.5-6 2.5 6M9.8 11.7h3.4"/>',
   minimize: '<path d="M3.5 8.5h9"/>',
   maximize: '<rect x="3.5" y="3.5" width="9" height="9" rx="1"/>',
   restore: '<rect x="3.5" y="5.5" width="7" height="7" rx="1"/><path d="M5.5 5.5V4.5a1 1 0 0 1 1-1h5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-1"/>',
@@ -51,6 +52,7 @@ const buttons = {
   key: $<HTMLButtonElement>('key'),
   shield: $<HTMLButtonElement>('shield'),
   record: $<HTMLButtonElement>('record'),
+  translate: $<HTMLButtonElement>('translate'),
   downloads: $<HTMLButtonElement>('downloads'),
   menu: $<HTMLButtonElement>('menu'),
 };
@@ -448,7 +450,35 @@ function renderToolbar(): void {
   buttons.record.innerHTML = paused ? `${svg('pause')}<span>已暂停记录</span>` : '<span class="dot"></span><span>记录中</span>';
   buttons.record.title = paused ? '浏览历史已暂停记录，点击恢复' : '正在记录浏览历史，点击暂停';
 
+  renderTranslate(tab);
   setBadge(buttons.downloads, state!.downloadsActive);
+}
+
+function renderTranslate(tab: TabState | undefined): void {
+  const b = buttons.translate;
+  const download = state!.translationDownload;
+  const t = tab?.translation ?? 'off';
+  let label = '翻译';
+  let title = '把这个英文网页翻译成中文（在你的电脑上翻译，网页内容不会发出去）';
+  if (download !== null) {
+    label = `下载模型 ${Math.round(download * 100)}%`;
+    title = '正在从 Mozilla 下载英译中模型（只需下载一次）';
+  } else if (t === 'busy') {
+    label = '翻译中…';
+    title = '正在翻译，点击显示原文';
+  } else if (t === 'on') {
+    label = '显示原文';
+    title = '已翻译成中文，点击显示原文';
+  } else if (t === 'chinese') {
+    label = '已是中文';
+    title = '这个网页看起来已经是中文，不需要翻译';
+  }
+  b.disabled = !tab?.isWeb || download !== null;
+  b.classList.toggle('active', t === 'busy' || t === 'on');
+  b.dataset.state = download !== null ? 'download' : t;
+  b.title = title;
+  const html = `${svg('translate')}<span>${label}</span>`;
+  if (b.innerHTML !== html) b.innerHTML = html;
 }
 
 let renderedBar = '';
@@ -609,6 +639,7 @@ bar.addEventListener('drop', (e) => {
 buttons.key.addEventListener('click', () => send('passwordMenu', ...below(buttons.key)));
 buttons.shield.addEventListener('click', () => send('toggleShield'));
 buttons.record.addEventListener('click', () => send('toggleRecording'));
+buttons.translate.addEventListener('click', () => send('toggleTranslate'));
 buttons.downloads.addEventListener('click', () => send('openPage', 'downloads'));
 buttons.menu.addEventListener('click', () => send('mainMenu', ...below(buttons.menu)));
 $('pw-save').addEventListener('click', () => send('savePrompt', 'save'));

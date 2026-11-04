@@ -8,8 +8,12 @@ import type { Transition } from './history';
 const ERROR_PAGE = 'min://error/';
 const DEFAULT_CHROME_HEIGHT = 84;
 
+/** Page translation in a tab: 'chinese' briefly says the page needs none. */
+export type TranslationState = 'off' | 'busy' | 'on' | 'chinese';
+
 export interface Tab {
   id: number;
+  translation: TranslationState;
   view: WebContentsView;
   favicon: string | null;
   /** The address that failed to load while the error page is showing. */
@@ -55,6 +59,7 @@ export interface TabSnapshot {
   canGoForward: boolean;
   blocked: number;
   hasLoginForm: boolean;
+  translation: TranslationState;
   /** 0 = left/top pane, 1 = right/bottom pane, null = not in the split view. */
   splitPane: 0 | 1 | null;
 }
@@ -126,6 +131,7 @@ export class TabManager {
       lastUrl: '',
       blocked: 0,
       hasLoginForm: false,
+      translation: 'off',
       loginStep: null,
       autofilled: new Set(),
       pendingUsername: null,
@@ -524,6 +530,7 @@ export class TabManager {
         canGoForward: wc.navigationHistory.canGoForward(),
         blocked: tab.blocked,
         hasLoginForm: tab.hasLoginForm,
+        translation: tab.translation,
         splitPane: this.split ? ((this.split.ids.indexOf(tab.id) as 0 | 1 | -1) === -1 ? null : (this.split.ids.indexOf(tab.id) as 0 | 1)) : null,
       };
     });
@@ -562,6 +569,8 @@ export class TabManager {
     wc.on('did-start-navigation', (details) => {
       if (details.isMainFrame && !details.isSameDocument) {
         tab.blocked = 0;
+        // A new page starts untranslated.
+        tab.translation = 'off';
         // Same race for the login form report from the new page.
         tab.hasLoginForm = false;
         tab.loginStep = null;

@@ -15,7 +15,7 @@ await Promise.all([
     external: ['electron'],
   }),
   // Sandboxed preloads must be a single CommonJS file that only requires "electron".
-  ...['ui', 'tab', 'popup', 'shield'].map((name) =>
+  ...['ui', 'tab', 'popup', 'shield', 'translator'].map((name) =>
     build({
       ...common,
       entryPoints: [`src/preload/${name}.ts`],
@@ -51,6 +51,16 @@ await Promise.all([
     platform: 'browser',
     format: 'iife',
   }),
+  // The translation engine page and its worker.
+  ...['page', 'worker'].map((name) =>
+    build({
+      ...common,
+      entryPoints: [`src/translator/${name}.ts`],
+      outfile: `dist/translator/${name}.js`,
+      platform: 'browser',
+      format: 'iife',
+    }),
+  ),
   build({
     ...common,
     entryPoints: ['src/renderer/bookmark-popup.ts'],
@@ -61,6 +71,10 @@ await Promise.all([
 ]);
 
 cpSync('src/renderer/index.html', 'dist/renderer/index.html');
+cpSync('src/translator/index.html', 'dist/translator/index.html');
+// Mozilla's engine loader, unchanged (MPL-2.0, see vendor/bergamot/README.md).
+cpSync('vendor/bergamot/bergamot-translator.js', 'dist/translator/bergamot-translator.js');
+cpSync('vendor/bergamot/LICENSE', 'dist/translator/LICENSE-bergamot.txt');
 cpSync('src/renderer/styles.css', 'dist/renderer/styles.css');
 cpSync('src/renderer/bookmark-popup.html', 'dist/renderer/bookmark-popup.html');
 cpSync('src/renderer/bookmark-popup.css', 'dist/renderer/bookmark-popup.css');

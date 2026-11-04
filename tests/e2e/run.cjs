@@ -45,6 +45,35 @@ function startServer() {
     };
     if (url.pathname === '/login')
       return html(page('Login Page', '<form method="post" action="/welcome"><input name="user" autocomplete="username" id="u"><input type="password" name="pw" id="p"><button id="go">Sign in</button></form>'));
+    if (url.pathname === '/english')
+      return html(
+        page(
+          'English Article',
+          '<h1 id="h">Privacy matters</h1>' +
+            '<p id="whole">The <b>quick</b> brown fox jumps over the lazy dog.</p>' +
+            '<p id="linked">Read our <a id="lnk" href="/page/71">privacy policy</a> before you sign up.</p>' +
+            '<p id="coded">See <code id="code">config.json</code> for details.</p>' +
+            '<p><input id="field" value="Keep this text"></p>' +
+            '<p id="opt" translate="no">Brand Name Stays</p>' +
+            '<div style="height:4000px"></div><p id="far">This paragraph is far below the fold.</p>',
+        ),
+      );
+    if (url.pathname === '/chinese') return html(page('中文网页', '<p>这是一个中文网页，介绍隐私浏览器。Home About Contact</p><p>内容都是中文的，不需要翻译。我们重视你的隐私和数据安全。</p>'));
+    // A stand-in for Mozilla's model servers (real-engine test only).
+    const models = process.env.MINBROWSER_E2E_MODELS;
+    if (models && url.pathname.startsWith('/v1/buckets/main/collections/')) {
+      const name = url.pathname.split('/')[5];
+      const file = path.join(models, 'changesets', `${name}.json`);
+      if (!fs.existsSync(file)) return res.writeHead(404).end();
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end(fs.readFileSync(file));
+    }
+    if (models && url.pathname.startsWith('/attachments/')) {
+      const file = path.join(models, 'attachments', path.normalize(url.pathname.slice('/attachments/'.length)));
+      if (!file.startsWith(path.join(models, 'attachments')) || !fs.existsSync(file)) return res.writeHead(404).end();
+      res.writeHead(200, { 'content-type': 'application/zstd' });
+      return res.end(fs.readFileSync(file));
+    }
     if (url.pathname === '/links')
       return html(page('Links Page', '<p><a id="l" href="/page/41" style="display:block;width:200px;height:40px">Go to page 41</a></p><p><input id="f" style="width:200px;height:30px"></p><p id="t">plain text here</p>'));
     if (url.pathname === '/login2') return html(page('Two Step Login', '<form action="/login2/pw" method="get"><input type="email" name="email" id="e" autocomplete="username" placeholder="邮箱"><button id="next">下一步</button></form>'));
@@ -92,14 +121,14 @@ function fakeChromeProfile() {
 
 // ------------------------------------------------------------------ driver
 
-async function launch() {
+async function launch(extraEnv = {}) {
   const packaged = process.env.PACKAGED;
   const args = process.platform === 'linux' ? ['--no-sandbox'] : [];
   const app = await _electron.launch({
     executablePath: packaged ? path.resolve(packaged) : require(path.join(ROOT, 'node_modules', 'electron')),
     args: packaged ? args : [...args, ROOT],
     // A throwaway HOME keeps the test away from your real data and Chrome profile.
-    env: { ...process.env, HOME, XDG_CONFIG_HOME: path.join(HOME, '.config') },
+    env: { ...process.env, HOME, XDG_CONFIG_HOME: path.join(HOME, '.config'), ...extraEnv },
   });
   // The browser UI page (other views, like the split-view layers, are pages too).
   let ui = null;
@@ -807,6 +836,82 @@ async function contextMenu() {
   }
 }
 
+async function translation() {
+  const { app, ui, go, inTab } = await launch({ MINBROWSER_FAKE_TRANSLATOR: '1' });
+  await unlockWith(ui, PW2);
+  const state = () => ui.getAttribute('#translate', 'data-state');
+  const text = (id) => inTab('/english', `document.getElementById('${id}').textContent`);
+  await go(`${SITE}/english`);
+  const original = await inTab('/english', 'document.body.innerHTML');
+  check('translate button shows on English pages', (await ui.textContent('#translate')).includes('翻译') && !(await ui.isDisabled('#translate')));
+  await ui.click('#translate');
+  await wait(1500);
+  check('translate button switches to "show original"', (await state()) === 'on' && (await ui.textContent('#translate')).includes('显示原文'), await state());
+  check('a plain paragraph is translated as one piece', (await text('whole')) === '【译】The quick brown fox jumps over the lazy dog.', await text('whole'));
+  check('links stay links, with their text translated', (await inTab('/english', "document.getElementById('lnk').getAttribute('href')")) === '/page/71' && (await text('lnk')) === '【译】privacy policy', await text('linked'));
+  check('code is not translated', (await text('code')) === 'config.json' && (await text('coded')).includes('【译】See'), await text('coded'));
+  check('form fields and translate="no" are left alone', (await inTab('/english', "document.getElementById('field').value")) === 'Keep this text' && (await text('opt')) === 'Brand Name Stays');
+  check('text far below the screen waits until scrolled to', (await text('far')) === 'This paragraph is far below the fold.');
+  await inTab('/english', "document.getElementById('far').scrollIntoView()");
+  await wait(1200);
+  check('scrolling translates the rest', (await text('far')).startsWith('【译】'), await text('far'));
+  await inTab('/english', "const p = document.createElement('p'); p.id = 'late'; p.textContent = 'Loaded a bit later.'; document.body.append(p); p.scrollIntoView();");
+  await wait(1500);
+  check('content added later is translated too', (await text('late')) === '【译】Loaded a bit later.', await text('late'));
+  await inTab('/english', "document.getElementById('late').remove()");
+  await ui.click('#translate');
+  await wait(500);
+  check('"show original" puts every text back exactly', (await inTab('/english', 'document.body.innerHTML')) === original && (await state()) === 'off');
+  check('the page cannot reach the translator', (await inTab('/english', 'typeof window.min + typeof window.minbrowser + typeof require')) === 'undefinedundefinedundefined');
+
+  await go(`${SITE}/chinese`);
+  await ui.click('#translate');
+  await wait(600);
+  check('a Chinese page is not translated', (await state()) === 'chinese' && (await ui.textContent('#translate')).includes('已是中文'));
+  await wait(2600);
+  check('the "already Chinese" note goes away', (await state()) === 'off');
+  await app.close();
+}
+
+/** The real engine and model, with a local stand-in for Mozilla's servers (MINBROWSER_E2E_MODELS). */
+async function realTranslation() {
+  const { app, ui, go, inTab } = await launch({ MINBROWSER_TRANSLATIONS_SERVER: `http://${SITE}` });
+  await unlockWith(ui, PW2);
+  await app.evaluate(({ dialog }) => {
+    globalThis.__asked = 0;
+    dialog.showMessageBox = async () => {
+      globalThis.__asked++;
+      return { response: 0 };
+    };
+  });
+  await go(`${SITE}/english`);
+  await ui.click('#translate');
+  let done = false;
+  for (let i = 0; i < 120 && !done; i++) {
+    await wait(500);
+    done = (await ui.getAttribute('#translate', 'data-state')) === 'on';
+  }
+  check('first translation asks before downloading the model', (await app.evaluate(() => globalThis.__asked)) === 1);
+  const zh = await inTab('/english', "document.getElementById('whole').textContent");
+  check('the real engine translates English to Chinese', done && /[\u4e00-\u9fff]{4,}/.test(zh), zh);
+  // A picture of the translated page, for looking at by eye.
+  const png = await app.evaluate(async ({ webContents }) => {
+    const w = webContents.getAllWebContents().find((w) => w.getURL().endsWith('/english'));
+    return (await w.capturePage()).toPNG().toString('base64');
+  }).catch(() => null);
+  if (png) fs.writeFileSync(path.join(ROOT, '.screens', 'translated-page.png'), Buffer.from(png, 'base64'));
+  const dir = path.join(DATA, 'translations');
+  const files = fs.existsSync(dir) ? fs.readdirSync(dir) : [];
+  check('model files are kept, private, in the data folder', files.includes('manifest.json') && files.includes('model.enzh.zst') && files.every((f) => (fs.statSync(path.join(dir, f)).mode & 0o777) === 0o600), files.join(','));
+  const blocked = await app.evaluate(async ({ webContents }, site) => {
+    const engine = webContents.getAllWebContents().find((w) => w.getURL().startsWith('app://translator/'));
+    if (!engine) return 'no engine page';
+    return engine.executeJavaScript(`fetch('http://${site}/english').then(() => 'reached', () => 'blocked')`);
+  }, SITE);
+  check('the translation engine cannot reach the network', blocked === 'blocked', blocked);
+  await app.close();
+}
+
 async function securityChecks() {
   const { app, ui, go } = await launch();
   await unlockWith(ui, PW2);
@@ -840,6 +945,8 @@ async function securityChecks() {
     await multiStepLogin();
     await splitView();
     await contextMenu();
+    await translation();
+    if (process.env.MINBROWSER_E2E_MODELS) await realTranslation();
     await securityChecks();
   } finally {
     server.close();

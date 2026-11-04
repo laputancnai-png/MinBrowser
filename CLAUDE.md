@@ -18,3 +18,9 @@
 ## 发布
 
 开发分支推送后同步到 `main`：`git push origin <分支>:main`。
+
+## 翻译功能的测试
+
+- 普通端到端测试用假的翻译引擎（`MINBROWSER_FAKE_TRANSLATOR=1`，只在开发版生效）。
+- 真实引擎测试：准备一个目录，内含 `changesets/translations-wasm-v2.json`、`changesets/translations-models-v2.json`（Mozilla Remote Settings 的 changeset）和 `attachments/<location>`（对应的 .zst 文件），然后 `MINBROWSER_E2E_MODELS=<目录> npm run test:e2e`。
+- 更新引擎：见 `vendor/bergamot/README.md`，加载文件和 WASM 必须配套，`src/main/translation-models.ts` 里锁定的 WASM 哈希要一起改。

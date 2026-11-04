@@ -1,7 +1,7 @@
 {
   "name": "minbrowser",
   "productName": "MinBrowser",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "description": "A private browser that keeps your data encrypted on your own disk.",
   "main": "dist/main/index.js",
   "private": true,

@@ -6,6 +6,7 @@ import {
   dialog,
   ipcMain,
   Menu,
+  net,
   MenuItemConstructorOptions,
   nativeTheme,
   powerMonitor,
@@ -19,6 +20,8 @@ import { generatePassword } from '../shared/password';
 import { siteOf } from '../shared/privacy';
 import { originOf, parseWebAddress, searchUrl } from '../shared/url';
 import { pageMenu } from './page-menu';
+import { TranslationFiles } from './translation-models';
+import { EngineTranslator, FakeTranslator, Translator } from './translator';
 import { AdBlocker } from './adblock';
 import { BookmarkPopup } from './bookmark-popup';
 import { SplitShield } from './split-shield';
@@ -78,6 +81,9 @@ export class BrowserApp {
   private splitDrag: { kind: 'divider' } | { kind: 'tab'; tabId: number; zone: DropZone | null } | null = null;
   private vault: Vault | null = null;
   private recorder: HistoryRecorder;
+  /** English → Chinese page translation (engine started on first use). */
+  private translator: Translator | null = null;
+  private translationDownload: number | null = null;
   private pendingSave: PendingSave | null = null;
   private emitQueued = false;
   private quitting = false;
@@ -210,6 +216,7 @@ export class BrowserApp {
           shield: !cfg?.adblockEnabled ? 'off' : site && sites.adblockAllowed(site) ? 'paused' : 'on',
           showKey: isWeb && (t.hasLoginForm || (origin !== null && passwords.forOrigin(origin).length > 0)),
           splitPane: t.splitPane,
+          translation: t.translation,
         };
       });
       bar = bookmarks.children(BAR_ID).map((b) => ({ id: b.id, type: b.type, title: b.title, url: b.url, description: b.description }));
@@ -217,6 +224,7 @@ export class BrowserApp {
     const p = this.pendingSave;
     return {
       maximized: this.win?.isMaximized() ?? false,
+      translationDownload: this.translationDownload,
       phase: this.phase,
       dataDir: this.dataDir,
       tabs,
@@ -331,6 +339,8 @@ export class BrowserApp {
           args[2] === null ? null : num(2),
           rect(args[3]),
         );
+      case 'toggleTranslate':
+        return this.toggleTranslate();
       case 'toggleRecording':
         return this.setRecordingPaused(!this.config!.get().recordingPaused);
       case 'toggleShield':
@@ -549,6 +559,8 @@ export class BrowserApp {
     this.dividerHandle?.hide();
     this.recorder.finishAll();
     this.pendingSave = null;
+    // Free the translation engine; pages keep their translated text while hidden.
+    this.translator?.stop();
     this.closeServices();
     this.tabs?.setVisible(false);
     this.phase = 'locked';
@@ -1003,10 +1015,129 @@ export class BrowserApp {
     }
   }
 
+  // ---------------------------------------------------------------- translation
+
+  /**
+   * Development builds only: MINBROWSER_FAKE_TRANSLATOR=1 "translates" without
+   * any download (UI tests); MINBROWSER_TRANSLATIONS_SERVER points the model
+   * download at a local copy of Mozilla's servers.
+   */
+  private get fakeTranslation(): boolean {
+    return !app.isPackaged && process.env.MINBROWSER_FAKE_TRANSLATOR === '1';
+  }
+
+  private translationFiles(): TranslationFiles | null {
+    if (!this.dataDir) return null;
+    const server = !app.isPackaged ? process.env.MINBROWSER_TRANSLATIONS_SERVER : undefined;
+    return new TranslationFiles(
+      join(this.dataDir, 'translations'),
+      (url) => net.fetch(url, { credentials: 'omit', cache: 'no-store' }),
+      server ? { settings: `${server}/v1/buckets/main/collections`, attachments: `${server}/attachments/` } : undefined,
+    );
+  }
+
+  private getTranslator(): Translator {
+    this.translator ??= this.fakeTranslation
+      ? new FakeTranslator()
+      : new EngineTranslator(() => {
+          const files = this.translationFiles();
+          if (!files) throw new Error('浏览器已锁定');
+          return files.load();
+        });
+    return this.translator;
+  }
+
+  /** The 译 button: translate the page, or show the original again. */
+  private async toggleTranslate(): Promise<void> {
+    const tab = this.tabs?.active();
+    if (!tab || !this.win) return;
+    const wc = tab.view.webContents;
+    if (!/^https?:/.test(wc.getURL())) return;
+    if (tab.translation === 'busy' || tab.translation === 'on') {
+      wc.send(Ipc.TranslateRestore);
+      tab.translation = 'off';
+      this.emit();
+      return;
+    }
+    if (this.translationDownload !== null) return;
+    const files = this.translationFiles();
+    if (!this.fakeTranslation && files && !files.installed) {
+      const answer = await dialog.showMessageBox(this.win, {
+        type: 'question',
+        buttons: ['下载', '取消'],
+        defaultId: 0,
+        cancelId: 1,
+        message: '第一次使用翻译，需要先下载英译中模型',
+        detail:
+          '会从 Mozilla（Firefox 的开发方）下载约 37MB 的翻译引擎和模型，只需下载这一次。\n\n' +
+          '翻译完全在你的电脑上进行，网页内容不会发送到任何地方。',
+      });
+      if (answer.response !== 0) return;
+      this.translationDownload = 0;
+      this.emit();
+      try {
+        await files.download((p) => {
+          this.translationDownload = p;
+          this.emit();
+        });
+      } catch (err) {
+        this.translationDownload = null;
+        this.emit();
+        void dialog.showMessageBox(this.win, { type: 'error', message: '翻译模型下载失败', detail: err instanceof Error ? err.message : String(err) });
+        return;
+      }
+      this.translationDownload = null;
+    }
+    // The tab may have been closed or navigated while downloading.
+    if (this.phase !== 'unlocked' || !this.tabs?.get(tab.id) || wc.isDestroyed()) return;
+    tab.translation = 'busy';
+    this.emit();
+    wc.send(Ipc.TranslateStart);
+  }
+
+  private registerTranslationIpc(tabFor: (e: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent) => { tab: Tab; origin: string } | null): void {
+    // Pieces of the page to translate, from a tab the user asked to translate.
+    ipcMain.handle(Ipc.TranslateTexts, async (e, texts: unknown) => {
+      const t = tabFor(e);
+      if (!t || this.phase !== 'unlocked' || (t.tab.translation !== 'busy' && t.tab.translation !== 'on')) throw new Error('forbidden');
+      if (!Array.isArray(texts) || texts.length > 64 || !texts.every((x) => typeof x === 'string' && x.length <= 5000)) {
+        throw new Error('bad argument');
+      }
+      return this.getTranslator().translate(texts as string[]);
+    });
+    ipcMain.on(Ipc.TranslateStatus, (e, status: unknown, detail: unknown) => {
+      const t = tabFor(e);
+      if (!t) return;
+      const tab = t.tab;
+      if (status === 'busy' || status === 'idle') {
+        if (tab.translation === 'off') return; // already switched back to the original
+        tab.translation = status === 'busy' ? 'busy' : 'on';
+      } else if (status === 'not-english') {
+        tab.translation = 'chinese';
+        setTimeout(() => {
+          if (tab.translation === 'chinese') {
+            tab.translation = 'off';
+            this.emit();
+          }
+        }, 2500);
+      } else if (status === 'error') {
+        if (tab.translation === 'off') return;
+        tab.view.webContents.send(Ipc.TranslateRestore);
+        tab.translation = 'off';
+        if (this.win) {
+          void dialog.showMessageBox(this.win, { type: 'error', message: '翻译失败', detail: typeof detail === 'string' ? detail.slice(0, 500) : '' });
+        }
+      } else {
+        return;
+      }
+      this.emit();
+    });
+  }
+
   // ---------------------------------------------------------------- passwords
 
   private registerTabIpc(): void {
-    const tabFor = (e: Electron.IpcMainEvent) => {
+    const tabFor = (e: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent) => {
       // Only the top frame of one of our tabs, on a web page, may talk to us.
       const frame = e.senderFrame;
       if (!frame || frame.parent !== null) return null;
@@ -1014,6 +1145,7 @@ export class BrowserApp {
       const origin = originOf(frame.url);
       return tab && origin ? { tab, origin } : null;
     };
+    this.registerTranslationIpc(tabFor);
 
     ipcMain.on(Ipc.PwForms, (e, step: unknown) => {
       const t = tabFor(e);

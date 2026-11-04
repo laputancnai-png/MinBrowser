@@ -382,6 +382,21 @@ body {
   height: 12px;
 }
 
+#translate svg {
+  width: 14px;
+  height: 14px;
+}
+
+#translate.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+#translate:disabled {
+  opacity: 0.45;
+  background: transparent;
+}
+
 /* Bookmarks bar */
 #bookmarks-bar {
   display: flex;

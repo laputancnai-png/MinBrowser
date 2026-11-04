@@ -22,6 +22,16 @@ export const Ipc = {
   PwUsername: 'pw:username',
   PwFill: 'pw:fill',
   PwFillNew: 'pw:fill-new',
+  /** main <-> the hidden translation engine page */
+  TranslatorInit: 'translator:init',
+  TranslatorReady: 'translator:ready',
+  TranslatorRequest: 'translator:request',
+  TranslatorReply: 'translator:reply',
+  /** Tab page translator <-> main */
+  TranslateTexts: 'translate:texts',
+  TranslateStart: 'translate:start',
+  TranslateRestore: 'translate:restore',
+  TranslateStatus: 'translate:status',
 } as const;
 
 export type Phase = 'setup' | 'locked' | 'unlocked';
@@ -44,6 +54,8 @@ export interface TabState {
   showKey: boolean;
   /** 0 = left/top, 1 = right/bottom when shown in the split view. */
   splitPane: 0 | 1 | null;
+  /** English → Chinese page translation; 'chinese' = the page needs none. */
+  translation: 'off' | 'busy' | 'on' | 'chinese';
 }
 
 export interface BarItem {
@@ -75,6 +87,8 @@ export interface UiState {
   split: { orientation: 'horizontal' | 'vertical'; ratio: number; panes: [number, number] } | null;
   /** The window fills the screen (Linux draws its own maximize/restore button). */
   maximized: boolean;
+  /** Downloading the translation model: 0..1, null when not downloading. */
+  translationDownload: number | null;
 }
 
 export interface SetupDirResult {
