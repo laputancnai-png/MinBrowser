@@ -45,6 +45,7 @@ function startServer() {
     };
     if (url.pathname === '/login')
       return html(page('Login Page', '<form method="post" action="/welcome"><input name="user" autocomplete="username" id="u"><input type="password" name="pw" id="p"><button id="go">Sign in</button></form>'));
+    if (url.pathname === '/findme') return html(page('Find Me', '<p>An apple a day.</p><p>Another apple here.</p><div style="height:3000px"></div><p>The last apple is far down.</p>'));
     if (url.pathname === '/english')
       return html(
         page(
@@ -821,6 +822,54 @@ async function contextMenu() {
   }
 }
 
+async function findInPage() {
+  const { app, ui, go } = await launch();
+  await unlockWith(ui, PW2);
+  await go(`${SITE}/findme`);
+  // Shortcuts as native key events (Playwright's own key presses skip the browser's shortcut handling).
+  const press = (where, key, modifiers = []) =>
+    app.evaluate(({ BrowserWindow, webContents }, [where, key, modifiers]) => {
+      const w = where === 'ui' ? BrowserWindow.getAllWindows()[0].webContents : webContents.getAllWebContents().find((w) => w.getURL().endsWith('/findme'));
+      w.focus();
+      w.sendInputEvent({ type: 'keyDown', keyCode: key, modifiers });
+      w.sendInputEvent({ type: 'keyUp', keyCode: key, modifiers });
+    }, [where, key, modifiers]);
+  const count = () => ui.textContent('#find-count');
+  const pageTop = () =>
+    app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].contentView.children.find((v) => v.webContents.getURL().endsWith('/findme')).getBounds().y);
+  const topBefore = await pageTop();
+
+  await press('page', 'F', ['control']);
+  await wait(400);
+  check('Ctrl+F in the page opens the find bar with the cursor in it', (await ui.isVisible('#findbar')) && (await ui.evaluate(() => document.activeElement?.id)) === 'find-input');
+  check('the page moves down to make room for the find bar', (await pageTop()) > topBefore);
+  await ui.fill('#find-input', 'apple');
+  await wait(600);
+  check('typing finds and counts the matches', (await count()) === '1/3', await count());
+  await ui.screenshot({ path: path.join(ROOT, '.screens', 'findbar.png'), clip: { x: 0, y: 0, width: 1280, height: 160 } }).catch(() => {});
+  await ui.press('#find-input', 'Enter');
+  await wait(400);
+  check('Enter goes to the next match', (await count()) === '2/3', await count());
+  await ui.press('#find-input', 'Shift+Enter');
+  await wait(400);
+  check('Shift+Enter goes back', (await count()) === '1/3', await count());
+  await press('page', 'F3');
+  await wait(400);
+  check('F3 in the page goes to the next match', (await count()) === '2/3', await count());
+  await ui.fill('#find-input', 'zzzz');
+  await wait(600);
+  check('no match is shown clearly', (await count()) === '无结果' && (await ui.getAttribute('#findbar', 'class'))?.includes('none'));
+  await ui.press('#find-input', 'Escape');
+  await wait(400);
+  check('Esc closes the find bar and gives the page its room back', !(await ui.isVisible('#findbar')) && (await pageTop()) === topBefore);
+  await ui.click('#address');
+  await press('ui', 'F', ['control']);
+  await wait(400);
+  check('Ctrl+F works from the address bar too, keeping the last search', (await ui.isVisible('#findbar')) && (await ui.inputValue('#find-input')) === 'zzzz');
+  await ui.click('#find-close');
+  await app.close();
+}
+
 async function translation() {
   const { app, ui, go, inTab } = await launch({ MINBROWSER_FAKE_TRANSLATOR: '1' });
   await unlockWith(ui, PW2);
@@ -931,6 +980,7 @@ async function securityChecks() {
     await multiStepLogin();
     await splitView();
     await contextMenu();
+    await findInPage();
     await translation();
     await realTranslation();
     await securityChecks();

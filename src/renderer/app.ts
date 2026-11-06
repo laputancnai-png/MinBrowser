@@ -31,6 +31,8 @@ const ICONS = {
   translate: '<path d="M2.5 4h6M5.5 2.5V4M4 4c.4 2.3 1.9 4.2 4 5.2M7 4c-.4 2.4-2.2 4.6-4.5 5.6M9 13.5l2.5-6 2.5 6M9.8 11.7h3.4"/>',
   minimize: '<path d="M3.5 8.5h9"/>',
   maximize: '<rect x="3.5" y="3.5" width="9" height="9" rx="1"/>',
+  up: '<path d="m4 10 4-4 4 4"/>',
+  down: '<path d="m4 6 4 4 4-4"/>',
   restore: '<rect x="3.5" y="5.5" width="7" height="7" rx="1"/><path d="M5.5 5.5V4.5a1 1 0 0 1 1-1h5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-1"/>',
 };
 
@@ -531,6 +533,8 @@ api.onState((next) => {
   const phaseChanged = next.phase !== state?.phase;
   state = next;
   if (switched) editing = false;
+  // Switched tabs with the find bar open: search the new tab for the same text.
+  if (switched && !findbar.hidden && next.phase === 'unlocked') send('find', findInput.value, 'new');
   renderWindowControls(next.maximized);
   render();
   if (phaseChanged && next.phase === 'unlocked') send('chromeHeight', chrome.getBoundingClientRect().height);
@@ -557,6 +561,66 @@ document.addEventListener('pointerdown', (e) => {
   if (e.target !== buttons.star && !buttons.star.contains(e.target as Node)) send('closePopup');
 }, true);
 api.onStarRequest(() => send('starClick', rectOf(buttons.star)));
+
+// ------------------------------------------------------------------ find in page
+
+const findbar = $('findbar');
+const findInput = $<HTMLInputElement>('find-input');
+const findCount = $('find-count');
+$('find-prev').innerHTML = svg('up');
+$('find-next').innerHTML = svg('down');
+$('find-close').innerHTML = svg('close');
+
+function openFind(): void {
+  findbar.hidden = false;
+  findInput.focus();
+  findInput.select();
+  if (findInput.value) send('find', findInput.value, 'new');
+}
+
+function findStep(direction: 'next' | 'prev'): void {
+  if (findbar.hidden) return openFind();
+  if (findInput.value) send('find', findInput.value, direction);
+}
+
+function closeFind(focusPage: boolean): void {
+  if (findbar.hidden) return;
+  findbar.hidden = true;
+  findCount.textContent = '';
+  findbar.classList.remove('none');
+  send('findClose', focusPage);
+}
+
+findInput.addEventListener('input', () => {
+  if (!findInput.value) {
+    findCount.textContent = '';
+    findbar.classList.remove('none');
+  }
+  send('find', findInput.value, 'new');
+});
+findInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    findStep(e.shiftKey ? 'prev' : 'next');
+  } else if (e.key === 'Escape') {
+    e.preventDefault();
+    closeFind(true);
+  }
+});
+$('find-prev').addEventListener('click', () => findStep('prev'));
+$('find-next').addEventListener('click', () => findStep('next'));
+$('find-close').addEventListener('click', () => closeFind(true));
+
+api.onFind((action) => {
+  if (action === 'open') openFind();
+  else if (action === 'close') closeFind(false);
+  else findStep(action);
+});
+api.onFindResult(({ matches, active }) => {
+  if (findbar.hidden || !findInput.value) return;
+  findCount.textContent = matches === 0 ? '无结果' : `${active}/${matches}`;
+  findbar.classList.toggle('none', matches === 0);
+});
 
 // ------------------------------------------------------------------ drag to the bookmarks bar
 

@@ -82,6 +82,8 @@ export class BrowserApp {
   private recorder: HistoryRecorder;
   /** English → Chinese page translation (engine started on first use). */
   private translator: Translator | null = null;
+  /** Find in page: the tab being searched while the find bar is open. */
+  private findTabId: number | null = null;
   private pendingSave: PendingSave | null = null;
   private emitQueued = false;
   private quitting = false;
@@ -173,7 +175,7 @@ export class BrowserApp {
     }
     // F5 reloads the page even while the address bar or tab strip has the focus.
     win.webContents.on('before-input-event', (event, input) => {
-      if (this.phase === 'unlocked' && this.tabs?.handleReloadKey(input)) event.preventDefault();
+      if (this.phase === 'unlocked' && (this.tabs?.handleReloadKey(input) || this.findKey(input))) event.preventDefault();
     });
     win.loadURL(`${UI_URL}index.html`);
   }
@@ -336,6 +338,10 @@ export class BrowserApp {
           args[2] === null ? null : num(2),
           rect(args[3]),
         );
+      case 'find':
+        return this.find(str(0), args[1] === 'next' || args[1] === 'prev' ? args[1] : 'new');
+      case 'findClose':
+        return this.closeFind(args[0] === true);
       case 'toggleTranslate':
         return this.toggleTranslate();
       case 'toggleRecording':
@@ -514,6 +520,12 @@ export class BrowserApp {
       focused: () => this.popup?.close(),
       layoutChanged: () => this.updateDividerHandle(),
       contextMenu: (tab, params) => this.pageContextMenu(tab, params),
+      keyShortcut: (input) => this.findKey(input),
+      foundInPage: (tab, result) => {
+        if (tab.id === this.findTabId && result.finalUpdate) {
+          this.win?.webContents.send(Ipc.FindResult, { matches: result.matches, active: result.activeMatchOrdinal });
+        }
+      },
       closed: (tab) => {
         this.scheduleSessionSave();
         this.recorder.finish(tab.id);
@@ -558,6 +570,8 @@ export class BrowserApp {
     this.dividerHandle?.hide();
     this.recorder.finishAll();
     this.pendingSave = null;
+    this.closeFind(false);
+    this.win?.webContents.send(Ipc.Find, 'close');
     // Free the translation engine; pages keep their translated text while hidden.
     this.translator?.stop();
     this.closeServices();
@@ -1014,6 +1028,56 @@ export class BrowserApp {
     }
   }
 
+  // ---------------------------------------------------------------- find in page
+
+  /** Ctrl/Cmd+F opens the find bar; Ctrl/Cmd+G or F3 (with Shift: backwards) moves between matches. */
+  findKey(input: Electron.Input): boolean {
+    if (input.type !== 'keyDown' || this.phase !== 'unlocked' || input.alt) return false;
+    const mod = process.platform === 'darwin' ? input.meta && !input.control : input.control && !input.meta;
+    const key = input.key.toLowerCase();
+    let action: 'open' | 'next' | 'prev' | null = null;
+    if (mod && !input.shift && key === 'f') action = 'open';
+    else if ((mod && key === 'g') || input.key === 'F3') action = this.findTabId === null ? 'open' : input.shift ? 'prev' : 'next';
+    if (!action) return false;
+    this.openFind(action);
+    return true;
+  }
+
+  openFind(action: 'open' | 'next' | 'prev' = 'open'): void {
+    if (!this.win || this.phase !== 'unlocked') return;
+    // The find bar is in the browser UI, so the keyboard goes there.
+    if (action === 'open') this.win.webContents.focus();
+    this.win.webContents.send(Ipc.Find, action);
+  }
+
+  /** Search the active tab: a new search, or the next / previous match. */
+  private find(text: string, direction: 'new' | 'next' | 'prev'): void {
+    const tab = this.tabs?.active();
+    if (!tab || text.length > 1000) return;
+    const wc = tab.view.webContents;
+    // Switched tabs while searching: clear the highlights in the old one.
+    if (this.findTabId !== null && this.findTabId !== tab.id) {
+      const old = this.tabs?.get(this.findTabId);
+      if (old && !old.view.webContents.isDestroyed()) old.view.webContents.stopFindInPage('clearSelection');
+    }
+    this.findTabId = tab.id;
+    if (!text) {
+      wc.stopFindInPage('clearSelection');
+      this.win?.webContents.send(Ipc.FindResult, { matches: 0, active: 0 });
+      return;
+    }
+    wc.findInPage(text, { forward: direction !== 'prev', findNext: direction === 'new' });
+  }
+
+  /** Close the find bar; the current match stays selected, and the page gets the keyboard back. */
+  private closeFind(focusPage: boolean): void {
+    const tab = this.findTabId !== null ? this.tabs?.get(this.findTabId) : undefined;
+    this.findTabId = null;
+    if (!tab || tab.view.webContents.isDestroyed()) return;
+    tab.view.webContents.stopFindInPage('keepSelection');
+    if (focusPage) tab.view.webContents.focus();
+  }
+
   // ---------------------------------------------------------------- translation
 
   /** Development builds only: MINBROWSER_FAKE_TRANSLATOR=1 "translates" without the engine (UI tests). */
@@ -1279,6 +1343,8 @@ export class BrowserApp {
       { label: '收藏夹', click: () => this.openPage('bookmarks') },
       { label: '密码', click: () => this.openPage('passwords') },
       { label: '下载', click: () => this.openPage('downloads') },
+      { type: 'separator' },
+      { label: '在页面中查找…', accelerator: 'CmdOrCtrl+F', registerAccelerator: false, click: () => this.openFind() },
       { type: 'separator' },
       {
         label: '显示收藏夹栏',

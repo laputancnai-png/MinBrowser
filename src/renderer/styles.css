@@ -460,6 +460,50 @@ body {
   border-bottom: 1px solid var(--border);
 }
 
+/* Find in page: a slim row under the toolbar. */
+#findbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  height: 40px;
+  padding: 0 10px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+
+#find-input {
+  width: 260px;
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--field);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+  user-select: text;
+}
+
+#find-input:focus {
+  border-color: var(--accent);
+}
+
+#findbar.none #find-input {
+  border-color: #d9534f;
+  background: rgba(217, 83, 79, 0.08);
+}
+
+#find-count {
+  min-width: 52px;
+  padding: 0 6px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
 #infobar .spacer {
   flex: 1;
 }

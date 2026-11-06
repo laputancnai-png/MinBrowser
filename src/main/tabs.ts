@@ -46,6 +46,10 @@ export interface TabHooks {
   focused?(tab: Tab): void;
   /** The user right-clicked in a page. */
   contextMenu?(tab: Tab, params: Electron.ContextMenuParams): void;
+  /** A key pressed in a page, before the page sees it: true = used by the browser. */
+  keyShortcut?(input: Electron.Input): boolean;
+  /** Results of find-in-page. */
+  foundInPage?(tab: Tab, result: Electron.Result): void;
 }
 
 export interface TabSnapshot {
@@ -629,8 +633,9 @@ export class TabManager {
 
     wc.on('context-menu', (_e, params) => this.hooks.contextMenu?.(tab, params));
     wc.on('before-input-event', (event, input) => {
-      if (this.handleReloadKey(input)) event.preventDefault();
+      if (this.handleReloadKey(input) || this.hooks.keyShortcut?.(input)) event.preventDefault();
     });
+    wc.on('found-in-page', (_e, result) => this.hooks.foundInPage?.(tab, result));
 
     // Popups and target=_blank links open as a new tab next to this one.
     wc.setWindowOpenHandler(({ url, disposition }) => {

@@ -7,6 +7,10 @@ export const Ipc = {
   FocusAddress: 'ui:focus-address',
   /** main -> UI: open the bookmark bubble under the star (e.g. from Ctrl+D) */
   StarRequest: 'ui:star-request',
+  /** main -> UI: find in page: 'open' | 'next' | 'prev' | 'close' */
+  Find: 'ui:find',
+  /** main -> UI: find results { matches, active } */
+  FindResult: 'ui:find-result',
   /** Bookmark bubble -> main, invoke(command, ...args) */
   Popup: 'popup:command',
   /** Split-view drag layer <-> main */
@@ -103,6 +107,8 @@ export interface MinBrowserApi {
   onState(cb: (state: UiState) => void): void;
   onFocusAddress(cb: () => void): void;
   onStarRequest(cb: () => void): void;
+  onFind(cb: (action: 'open' | 'next' | 'prev' | 'close') => void): void;
+  onFindResult(cb: (result: { matches: number; active: number }) => void): void;
 }
 
 export interface Rect {

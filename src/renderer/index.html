@@ -39,6 +39,13 @@
         <button id="pw-dismiss" class="button">暂不</button>
         <button id="pw-never" class="button quiet">此网站永不保存</button>
       </div>
+      <div id="findbar" hidden>
+        <input id="find-input" type="text" spellcheck="false" autocomplete="off" placeholder="在页面中查找" aria-label="在页面中查找" />
+        <span id="find-count" aria-live="polite"></span>
+        <button id="find-prev" class="icon-button" title="上一个（Shift+Enter）" aria-label="上一个"></button>
+        <button id="find-next" class="icon-button" title="下一个（Enter）" aria-label="下一个"></button>
+        <button id="find-close" class="icon-button" title="关闭（Esc）" aria-label="关闭查找"></button>
+      </div>
     </header>
 
     <!-- Drawn behind the pages: shows in the gap between the two panes of a split. -->
